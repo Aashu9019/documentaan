@@ -10,6 +10,7 @@ import {
 } from '@cantoo/pdf-lib';
 import { t, applyI18n, toggleLang } from './i18n.js';
 import { openSignatureDialog } from './signature.js';
+import { isDesktop, nativeOpen, nativeSave, readPath, baseName, setTitle, onExternalOpen, guardClose } from './native.js';
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
 
@@ -76,6 +77,10 @@ async function redo() { if (!S.future.length) return; S.history.push(snapshot())
 // ---------------------------------------------------------------- open / load
 async function openFile() {
   if (S.dirty && !confirm(t('unsaved'))) return;
+  if (isDesktop) {
+    try { const f = await nativeOpen(); if (f) openBytes(f.bytes, f.name, f.path); } catch (e) { toast('Open failed: ' + e, 4000); }
+    return;
+  }
   if (window.showOpenFilePicker) {
     try {
       const [h] = await window.showOpenFilePicker({ types: [{ description: 'PDF', accept: { 'application/pdf': ['.pdf'] } }] });
@@ -98,7 +103,7 @@ async function openBytes(bytes, name, handle) {
   if (S.password !== undefined) {
     try { const d = await PDFDocument.load(bytes, { password: S.password }); S.bytes = await d.save(); } catch (e) { console.warn(e); }
   }
-  $('#fileName').textContent = S.name;
+  $('#fileName').textContent = S.name; setTitle(`${S.name} — Documentaan`);
 }
 
 async function loadPdf(bytes, { keepAnnots }) {
@@ -522,6 +527,15 @@ async function save(saveAs = false) {
   document.activeElement?.blur?.();
   let out;
   try { out = await bake({ forSave: true }); } catch (e) { console.error(e); return toast('Save failed: ' + e.message, 4000); }
+  if (isDesktop) {
+    try {
+      const path = await nativeSave(out, saveAs ? null : S.handle, S.name);
+      if (!path) return;
+      S.handle = path; S.name = baseName(path); $('#fileName').textContent = S.name; setTitle(`${S.name} — Documentaan`);
+      S.dirty = false; toast(t('saved') + ' ✓');
+    } catch (e) { console.error(e); toast('Save failed: ' + e, 5000); }
+    return;
+  }
   try {
     if (window.showSaveFilePicker) {
       let h = saveAs ? null : S.handle;
@@ -817,3 +831,10 @@ window.addEventListener('drop', async (e) => {
 });
 
 applyI18n();
+
+// Desktop app: open PDFs passed by Windows (double-click / "Open with") and guard unsaved close.
+onExternalOpen(async (path) => {
+  if (S.dirty && !confirm(t('unsaved'))) return;
+  try { openBytes(await readPath(path), baseName(path), path); } catch (e) { toast('Open failed: ' + e, 4000); }
+});
+guardClose(() => S.dirty, t('unsaved'));

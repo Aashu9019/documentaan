@@ -17,3 +17,7 @@ Thumbs.db
 .env
 .env.*
 acrobat.md
+
+# Tauri / Rust
+src-tauri/target/
+src-tauri/gen/
