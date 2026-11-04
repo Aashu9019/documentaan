@@ -1,0 +1,19 @@
+# dependencies & build
+node_modules/
+dist/
+*.local
+
+# AI assistant / editor config
+.claude/
+CLAUDE.md
+.vscode/
+.idea/
+
+# logs & OS
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+.env
+.env.*
+acrobat.md
