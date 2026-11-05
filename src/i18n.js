@@ -2,6 +2,8 @@ export const dict = {
   en: {
     pickStyles: 'Tick one or more styles. Each one is saved as a separate signature.', alsoInitials: 'Also create matching initials',
     inkColor: 'Ink', saveN: 'Save {n} signatures', initials: 'Initials',
+    stampHint: 'Click to place as many as you need. Drag a corner to resize; the size is remembered.', allPages: 'Same spot on all pages',
+    placedAll: 'Placed on {n} pages', sizeSaved: 'Signature size remembered',
     menu: 'Menu', saveFull: 'Save', saveAs: 'Save as', closeDoc: 'Close document', home: 'Home', toolsShort: 'Tools',
     ok: 'OK', discard: 'Discard changes', deleteSig: 'Delete this signature?', protected: 'Password required',
     appName: 'Documentaan', open: 'Open', save: 'Save', print: 'Print', tools: 'Tools ▾',
@@ -29,6 +31,8 @@ export const dict = {
   ne: {
     pickStyles: 'एक वा धेरै शैली छान्नुहोस्। हरेक शैली छुट्टै हस्ताक्षरको रूपमा सेभ हुन्छ।', alsoInitials: 'मिल्दो छोटो हस्ताक्षर पनि बनाउनुहोस्',
     inkColor: 'मसी', saveN: '{n} हस्ताक्षर सेभ गर्नुहोस्', initials: 'छोटो हस्ताक्षर',
+    stampHint: 'जति चाहिन्छ त्यति ठाउँमा क्लिक गरेर राख्नुहोस्। कुना तानेर आकार मिलाउनुहोस्, आकार सम्झिन्छ।', allPages: 'सबै पृष्ठमा उही ठाउँमा',
+    placedAll: '{n} पृष्ठमा राखियो', sizeSaved: 'हस्ताक्षरको आकार सम्झियो',
     menu: 'मेनु', saveFull: 'सेभ', saveAs: 'अर्को नाममा सेभ', closeDoc: 'कागजात बन्द गर्नुहोस्', home: 'गृह', toolsShort: 'उपकरण',
     ok: 'ठीक छ', discard: 'परिवर्तन छोड्नुहोस्', deleteSig: 'यो हस्ताक्षर हटाउने?', protected: 'पासवर्ड चाहिन्छ',
     appName: 'डकुमेन्टान', open: 'खोल्नुहोस्', save: 'सेभ', print: 'प्रिन्ट', tools: 'उपकरण ▾',

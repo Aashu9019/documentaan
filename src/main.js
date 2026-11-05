@@ -155,7 +155,7 @@ async function renderPage(i) {
   try { await task.promise; d.classList.add('ready'); } catch (e) { if (e?.name !== 'RenderingCancelledException') console.error(e); }
 }
 
-function setZoom(s) { S.scale = Math.max(0.25, Math.min(4, s)); if (S.pdf) layoutPages(); }
+function setZoom(s) { S.scale = Math.max(0.25, Math.min(4, s)); if (S.pdf) layoutPages(); ghostSize(); }
 function fitWidth(initial) {
   if (!S.vps.length) return;
   const w = viewer.clientWidth - 48;
@@ -337,7 +337,8 @@ const strokeW = () => +$('#size').value;
 const fontSz = () => +$('#fontSize').value;
 
 function setTool(tool) {
-  S.tool = tool; S.placing = tool === 'place' ? S.placing : null;
+  S.tool = tool;
+  if (tool !== 'place' && S.placing) { S.placing = null; hidePlacingBar(); }
   $$('.tool[data-tool]').forEach((b) => b.classList.toggle('active', b.dataset.tool === tool));
   if (tool !== 'select') { S.selected = null; renderAllOverlays(); }
   updateCursor();
@@ -364,13 +365,15 @@ function bindOverlay(ov, i) {
     const [x, y] = pt(e), list = S.annots[i];
     const tool = S.tool;
 
-    if (tool === 'place' && S.placing) {
+    if (tool === 'place' && S.placing && !e.target.closest('.an')) {
       pushHistory();
-      const { src, w, h } = S.placing;
-      const a = { type: 'img', x: x - w / 2, y: y - h / 2, w, h, src };
-      list.push(a); S.selected = { page: i, a }; setTool('select'); renderOverlay(i); return;
+      const { src, w, h, id } = S.placing;
+      const a = { type: 'img', x: x - w / 2, y: y - h / 2, w, h, src, sigId: id };
+      const prev = S.selected; list.push(a); S.selected = { page: i, a }; S.placing.last = { page: i, a };
+      if (prev && prev.page !== i) renderOverlay(prev.page);
+      renderOverlay(i); updatePlacingBar(); return;
     }
-    if (tool === 'select') {
+    if (tool === 'select' || tool === 'place') {
       const el = e.target.closest('.an');
       if (!el) { if (S.selected) { S.selected = null; renderAllOverlays(); } return; }
       const a = list[+el.dataset.idx];
@@ -390,7 +393,10 @@ function bindOverlay(ov, i) {
         if (isHandle) resize(a, a0, dx, dy, { _w0: w0 }); else translate(a, a0, dx, dy);
         renderOverlay(i);
       };
-      const up = () => { ov.removeEventListener('pointermove', move); ov.removeEventListener('pointerup', up); };
+      const up = () => {
+        ov.removeEventListener('pointermove', move); ov.removeEventListener('pointerup', up);
+        if (moved && isHandle && a.sigId) rememberSigSize(a.sigId, a.w, a.h);
+      };
       ov.addEventListener('pointermove', move); ov.addEventListener('pointerup', up);
       e.preventDefault(); return;
     }
@@ -750,16 +756,69 @@ async function flatten() {
 function signDialog() {
   if (!S.bytes) return toast(t('needPdf'));
   openSignatureDialog({ modal, toast, ask, onPick: (sig) => {
-    const maxW = sig.kind === 'initials' ? 70 : 170, maxH = sig.kind === 'initials' ? 40 : 80;
-    let w = maxW, h = w * sig.h / sig.w;
-    if (h > maxH) { h = maxH; w = h * sig.w / sig.h; }
-    S.placing = { src: sig.dataUrl, w, h };
-    setTool('place'); toast(t('clickToPlace'), 3000);
+    let { w, h } = sigSizes()[sig.id] || {};
+    if (!w) {
+      const maxW = sig.kind === 'initials' ? 70 : 170, maxH = sig.kind === 'initials' ? 40 : 80;
+      w = maxW; h = w * sig.h / sig.w;
+      if (h > maxH) { h = maxH; w = h * sig.w / sig.h; }
+    }
+    S.placing = { id: sig.id, name: sig.name, src: sig.dataUrl, w, h, last: null };
+    setTool('place'); showPlacingBar();
   } });
 }
 
+// Remembered size per saved signature (survives restarts).
+function sigSizes() { try { return JSON.parse(localStorage.getItem('dc-sig-sizes') || '{}'); } catch { return {}; } }
+function rememberSigSize(id, w, h) {
+  try { const all = sigSizes(); all[id] = { w, h }; localStorage.setItem('dc-sig-sizes', JSON.stringify(all)); } catch {}
+  if (S.placing?.id === id) { S.placing.w = w; S.placing.h = h; ghostSize(); }
+  toast(t('sizeSaved'), 1600);
+}
+
+// ---- stamp mode: floating bar + cursor preview
+const bar = document.createElement('div');
+bar.className = 'place-bar'; bar.hidden = true;
+bar.innerHTML = `<img alt=""><div class="pb-text"><b></b><span></span></div>
+  <button class="btn" id="pbAll"></button><button class="btn primary" id="pbDone"></button>`;
+document.body.appendChild(bar);
+const ghost = Object.assign(document.createElement('img'), { className: 'sig-ghost', alt: '' });
+ghost.hidden = true; document.body.appendChild(ghost);
+function ghostSize() { if (S.placing) { ghost.style.width = S.placing.w * S.scale + 'px'; ghost.style.height = S.placing.h * S.scale + 'px'; } }
+function showPlacingBar() {
+  bar.querySelector('img').src = S.placing.src; ghost.src = S.placing.src; ghostSize();
+  bar.querySelector('b').textContent = S.placing.name;
+  bar.hidden = false; bar.classList.remove('out'); document.body.classList.add('stamping'); updatePlacingBar();
+}
+function updatePlacingBar() {
+  if (!S.placing) return;
+  bar.querySelector('span').textContent = t('stampHint');
+  $('#pbAll').textContent = t('allPages'); $('#pbAll').disabled = !S.placing.last || S.vps.length < 2;
+  $('#pbDone').textContent = t('done');
+}
+function hidePlacingBar() { document.body.classList.remove('stamping'); bar.classList.add('out'); ghost.hidden = true; setTimeout(() => { if (!S.placing) bar.hidden = true; }, 180); }
+$('#pbDone').onclick = () => setTool('select');
+$('#pbAll').onclick = () => {
+  const last = S.placing?.last; if (!last) return;
+  pushHistory();
+  const src = S.vps[last.page], a0 = last.a; let n = 0;
+  S.vps.forEach((vp, p) => {
+    if (p === last.page) return;
+    // keep the same relative spot even when page sizes differ
+    const kx = vp.width / src.width, ky = vp.height / src.height;
+    S.annots[p].push({ ...a0, x: a0.x * kx, y: a0.y * ky }); n++;
+  });
+  renderAllOverlays(); toast(t('placedAll').replace('{n}', n + 1), 2400);
+};
+pagesEl.addEventListener('pointermove', (e) => {
+  const over = S.tool === 'place' && S.placing && e.target.closest('.overlay') && !e.target.closest('.an');
+  ghost.hidden = !over;
+  if (over) { ghost.style.left = e.clientX + 'px'; ghost.style.top = e.clientY + 'px'; }
+});
+pagesEl.addEventListener('pointerleave', () => (ghost.hidden = true));
+
 async function closeDocument() {
   if (!S.pdf || !(await confirmDiscard())) return;
+  setTool('select');
   S.pdf.destroy(); S.pdf = null; S.bytes = null; S.annots = []; S.vps = []; S.history = []; S.future = [];
   S.selected = null; S.dirty = false; S.handle = null; S.protect = null;
   pagesEl.innerHTML = ''; thumbsEl.innerHTML = ''; $('#searchResults').hidden = true; thumbsEl.hidden = false;

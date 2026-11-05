@@ -199,3 +199,14 @@ body.is-dirty .dirty-dot { transform: scale(1); }
 .ink-t.on { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent); }
 .modal-bg.closing { pointer-events: none; }
 .font-opts { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); } .font-opts button { font-size: clamp(16px, 2.2vw, 24px); text-overflow: ellipsis; padding: 12px 30px 12px 12px; }
+
+/* ---------- signature stamp mode ---------- */
+.place-bar { position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); z-index: 90; display: flex; align-items: center; gap: 12px; padding: 10px 12px 10px 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 12px 40px rgba(0,0,0,.2); max-width: calc(100vw - 32px); animation: toast-in var(--med) var(--ease); }
+.place-bar.out { opacity: 0; transform: translate(-50%, 10px); transition: opacity 160ms var(--ease), transform 160ms var(--ease); }
+.place-bar img { height: 34px; max-width: 110px; object-fit: contain; background: #fff; border-radius: 6px; padding: 2px 6px; border: 1px solid var(--line); }
+.pb-text { display: flex; flex-direction: column; min-width: 0; font-size: 12px; color: var(--muted); max-width: 380px; }
+.pb-text b { color: var(--text); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sig-ghost { position: fixed; z-index: 80; pointer-events: none; transform: translate(-50%, -50%); opacity: .55; object-fit: fill; }
+.overlay.placing { cursor: none; }
+.overlay.placing .an { cursor: move; }
+body.stamping .toast { bottom: 96px; transition: bottom var(--med) var(--ease); }
