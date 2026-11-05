@@ -1,6 +1,6 @@
 [package]
 name = "documentaan"
-version = "1.0.0"
+version = "1.0.1"
 description = "Documentaan - lightweight local PDF editor"
 authors = ["Aashu9019"]
 edition = "2021"
