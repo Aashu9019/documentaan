@@ -152,7 +152,7 @@ async function renderPage(i) {
   renderTasks.get(i)?.cancel();
   const task = page.render({ canvasContext: c.getContext('2d'), viewport: vp });
   renderTasks.set(i, task);
-  try { await task.promise; } catch (e) { if (e?.name !== 'RenderingCancelledException') console.error(e); }
+  try { await task.promise; d.classList.add('ready'); } catch (e) { if (e?.name !== 'RenderingCancelledException') console.error(e); }
 }
 
 function setZoom(s) { S.scale = Math.max(0.25, Math.min(4, s)); if (S.pdf) layoutPages(); }
@@ -297,7 +297,7 @@ function renderOverlay(i) {
     if (a.type === 'text') {
       el.textContent = a.text; el.style.fontSize = a.size * k + 'px'; el.style.color = a.color;
     } else if (a.type === 'note') {
-      el.innerHTML = `🗨<div class="tip">${esc(a.text)}</div>`;
+      el.innerHTML = `<div class="tip">${esc(a.text)}</div>`;
       el.style.transform = `scale(${k})`; el.style.transformOrigin = '0 0';
     } else {
       el.style.width = b.w * k + 'px'; el.style.height = b.h * k + 'px';
@@ -750,8 +750,9 @@ async function flatten() {
 function signDialog() {
   if (!S.bytes) return toast(t('needPdf'));
   openSignatureDialog({ modal, toast, ask, onPick: (sig) => {
-    let w = 170, h = w * sig.h / sig.w;
-    if (h > 80) { h = 80; w = h * sig.w / sig.h; }
+    const maxW = sig.kind === 'initials' ? 70 : 170, maxH = sig.kind === 'initials' ? 40 : 80;
+    let w = maxW, h = w * sig.h / sig.w;
+    if (h > maxH) { h = maxH; w = h * sig.w / sig.h; }
     S.placing = { src: sig.dataUrl, w, h };
     setTool('place'); toast(t('clickToPlace'), 3000);
   } });
@@ -819,7 +820,11 @@ document.addEventListener('keydown', (e) => {
   else if (mod && (e.key === '=' || e.key === '+')) { e.preventDefault(); setZoom(S.scale * 1.2); }
   else if (mod && e.key === '-') { e.preventDefault(); setZoom(S.scale / 1.2); }
   else if (e.key === 'Delete' || e.key === 'Backspace') deleteSelected();
-  else if (e.key === 'Escape') { setTool('select'); S.selected = null; renderAllOverlays(); }
+  else if (e.key === 'Escape') {
+    const open = $$('.menu-list').filter((m) => !m.hidden);
+    if (open.length) { open.forEach((m) => (m.hidden = true)); return; }
+    setTool('select'); S.selected = null; renderAllOverlays();
+  }
 });
 viewer.addEventListener('wheel', (e) => { if (e.ctrlKey && S.pdf) { e.preventDefault(); setZoom(S.scale * (e.deltaY < 0 ? 1.1 : 1 / 1.1)); } }, { passive: false });
 window.addEventListener('resize', () => {});

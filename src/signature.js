@@ -36,7 +36,16 @@ export async function openSignatureDialog({ modal, toast, ask, onPick }) {
     </div>
     <div data-pane="type" hidden>
       <input type="text" id="typed" data-i18n-ph="typeYourName" placeholder="">
+      <p class="muted" style="margin:8px 0 0" data-i18n="pickStyles"></p>
       <div class="font-opts" id="fonts"></div>
+      <div class="row" style="justify-content:space-between;margin-top:10px">
+        <label class="check" style="margin:0"><input type="checkbox" id="alsoInit" checked> <span data-i18n="alsoInitials"></span></label>
+        <div class="row"><span class="muted" data-i18n="inkColor"></span>
+          <button class="btn ink-t on" data-tink="#111111" style="color:#111">●</button>
+          <button class="btn ink-t" data-tink="#1d3fb8" style="color:#1d3fb8">●</button>
+          <button class="btn ink-t" data-tink="#b81d1d" style="color:#b81d1d">●</button>
+        </div>
+      </div>
     </div>
     <div data-pane="upload" hidden>
       <input type="file" id="upl" accept="image/*">
@@ -73,6 +82,7 @@ export async function openSignatureDialog({ modal, toast, ask, onPick }) {
     m.el.querySelectorAll('[data-tab]').forEach((x) => x.classList.toggle('on', x === b));
     m.el.querySelectorAll('[data-pane]').forEach((p) => (p.hidden = p.dataset.pane !== tab));
     if (tab === 'draw') sizePad();
+    updateSaveLabel();
   }));
 
   // ---- draw pad with smoothed, pressure-ish strokes
@@ -108,13 +118,39 @@ export async function openSignatureDialog({ modal, toast, ask, onPick }) {
   m.el.querySelectorAll('[data-ink]').forEach((b) => (b.onclick = () => (ink = b.dataset.ink)));
 
   // ---- typed
-  let font = FONTS[0];
+  // Several styles can be ticked at once; each becomes its own saved signature.
+  const chosen = new Set([FONTS[0]]);
+  let typeInk = '#111111';
   const renderFonts = () => {
     const txt = $('#typed').value || 'Signature';
-    $('#fonts').innerHTML = FONTS.map((f) => `<button class="${f === font ? 'on' : ''}" data-font="${f}" style="font-family:'${f}',cursive">${esc(txt)}</button>`).join('');
+    $('#fonts').innerHTML = FONTS.map((f) => `<button class="${chosen.has(f) ? 'on' : ''}" data-font="${f}" style="font-family:'${f}',cursive;color:${typeInk}"><span class="tick">✓</span>${esc(txt)}</button>`).join('');
+    updateSaveLabel();
   };
   $('#typed').addEventListener('input', renderFonts);
-  $('#fonts').addEventListener('click', (e) => { const b = e.target.closest('[data-font]'); if (b) { font = b.dataset.font; renderFonts(); } });
+  $('#fonts').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-font]'); if (!b) return;
+    const f = b.dataset.font;
+    if (chosen.has(f) && chosen.size > 1) chosen.delete(f); else chosen.add(f);
+    renderFonts();
+  });
+  m.el.querySelectorAll('[data-tink]').forEach((b) => (b.onclick = () => {
+    typeInk = b.dataset.tink;
+    m.el.querySelectorAll('[data-tink]').forEach((x) => x.classList.toggle('on', x === b));
+    renderFonts();
+  }));
+  $('#alsoInit').addEventListener('change', updateSaveLabel);
+  function updateSaveLabel() {
+    const n = tab === 'type' ? chosen.size * ($('#alsoInit').checked ? 2 : 1) : 1;
+    $('#sv').textContent = n > 1 ? t('saveN').replace('{n}', n) : t('saveSig');
+  }
+  const initialsOf = (name) => name.split(/\s+/).filter(Boolean).map((w) => w[0].toUpperCase() + '.').join('');
+  async function renderTyped(txt, f, ink) {
+    await document.fonts.load(`120px "${f}"`).catch(() => {});
+    const c = document.createElement('canvas'), g = c.getContext('2d'), css = `120px "${f}", cursive`;
+    g.font = css; c.width = Math.ceil(g.measureText(txt).width + 60); c.height = 220;
+    g.font = css; g.fillStyle = ink; g.textBaseline = 'middle'; g.fillText(txt, 30, 110);
+    return trim(c);
+  }
   renderFonts();
 
   // ---- upload
@@ -140,21 +176,31 @@ export async function openSignatureDialog({ modal, toast, ask, onPick }) {
   // ---- save
   $('#cls').onclick = m.close;
   $('#sv').onclick = async () => {
-    let out = null;
-    if (tab === 'draw') out = drawn ? trim(pad) : null;
-    else if (tab === 'type') {
-      const txt = $('#typed').value.trim(); if (!txt) return;
-      await document.fonts.load(`120px "${font}"`).catch(() => {});
-      const c = document.createElement('canvas'), g = c.getContext('2d'), f = `120px "${font}", cursive`;
-      g.font = f; c.width = Math.ceil(g.measureText(txt).width + 60); c.height = 220;
-      g.font = f; g.fillStyle = '#111'; g.textBaseline = 'middle'; g.fillText(txt, 30, 110);
-      out = trim(c);
-    } else if (upCanvas) out = trim(upCanvas);
-    if (!out) return toast(t('drawHere'));
-    const sigs = await listSignatures();
-    await saveSignature({ name: $('#nm').value.trim() || `Signature ${sigs.length + 1}`, ...out });
-    $('#nm').value = ''; $('#clr').click(); toast(t('saved') + ' ✓');
-    refresh();
+    const count = (await listSignatures()).length;
+    const label = $('#nm').value.trim();
+    if (tab === 'type') {
+      const txt = $('#typed').value.trim();
+      if (!txt) { $('#typed').focus(); return toast(t('typeYourName')); }
+      const base = label || txt;
+      let saved = 0;
+      for (const f of chosen) {
+        const sig = await renderTyped(txt, f, typeInk);
+        if (sig) { await saveSignature({ name: `${base} (${f})`, kind: 'signature', ...sig }); saved++; }
+        if ($('#alsoInit').checked) {
+          const ini = await renderTyped(initialsOf(txt), f, typeInk);
+          if (ini) { await saveSignature({ name: `${t('initials')}: ${initialsOf(txt)} (${f})`, kind: 'initials', ...ini }); saved++; }
+        }
+      }
+      toast(`${t('saved')} ${saved} ✓`);
+    } else {
+      const out = tab === 'draw' ? (drawn ? trim(pad) : null) : upCanvas ? trim(upCanvas) : null;
+      if (!out) return toast(t('drawHere'));
+      await saveSignature({ name: label || `Signature ${count + 1}`, ...out });
+      $('#clr').click(); toast(t('saved') + ' ✓');
+    }
+    $('#nm').value = '';
+    await refresh();
+    $('#grid').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   };
 
   refresh();

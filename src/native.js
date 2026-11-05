@@ -13,7 +13,7 @@ async function libs() {
   }
 }
 const PDF_FILTER = [{ name: 'PDF', extensions: ['pdf'] }];
-export const baseName = (p) => p.split(/[\/]/).pop();
+export const baseName = (p) => p.split(/[\\/]/).pop();
 
 export async function readPath(path) {
   await libs();
