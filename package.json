@@ -13,7 +13,7 @@
   },
   "keywords": [],
   "author": "",
-  "license": "ISC",
+  "license": "MIT",
   "description": "Documentaan - lightweight local PDF editor",
   "dependencies": {
     "@cantoo/pdf-lib": "^2.11.1",

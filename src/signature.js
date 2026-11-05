@@ -18,7 +18,7 @@ function trim(c) {
   return { dataUrl: o.toDataURL('image/png'), w, h };
 }
 
-export async function openSignatureDialog({ modal, toast, onPick }) {
+export async function openSignatureDialog({ modal, toast, ask, onPick }) {
   const m = modal(t('mySignatures'), `
     <div class="sig-grid" id="grid"></div>
     <h3 data-i18n="addSignature"></h3>
@@ -61,7 +61,7 @@ export async function openSignatureDialog({ modal, toast, onPick }) {
   }
   $('#grid').addEventListener('click', async (e) => {
     const del = e.target.dataset.del;
-    if (del) { e.stopPropagation(); if (confirm(t('delete') + '?')) { await deleteSignature(del); refresh(); } return; }
+    if (del) { e.stopPropagation(); if (await ask(t('deleteSig'), { ok: t('delete'), danger: true })) { await deleteSignature(del); refresh(); } return; }
     const card = e.target.closest('.sig-card'); if (!card) return;
     const sig = $('#grid')._sigs.find((s) => s.id === card.dataset.id);
     m.close(); onPick(sig);

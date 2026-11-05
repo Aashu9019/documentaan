@@ -10,7 +10,8 @@ import {
 } from '@cantoo/pdf-lib';
 import { t, applyI18n, toggleLang } from './i18n.js';
 import { openSignatureDialog } from './signature.js';
-import { isDesktop, nativeOpen, nativeSave, readPath, baseName, setTitle, onExternalOpen, guardClose } from './native.js';
+import { toast, modal, ask, promptText } from './ui.js';
+import { isDesktop, nativeOpen, nativeSave, readPath, baseName, setTitle, onExternalOpen, guardClose, bindWindowControls } from './native.js';
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
 
@@ -27,7 +28,9 @@ const S = {
   tool: 'select',
   selected: null,       // { page, a }
   placing: null,        // signature waiting to be placed
-  dirty: false,
+  _dirty: false,
+  get dirty() { return this._dirty; },
+  set dirty(v) { this._dirty = v; document.body.classList.toggle('is-dirty', !!v); },
   protect: null,
   history: [], future: [],
   texts: null,          // search cache
@@ -44,22 +47,8 @@ const HIGHLIGHT = '#ffe14d';
 // Standard PDF fonts only cover Latin-1; anything else (e.g. Devanagari) is rendered as an image.
 const latinSafe = (s) => /^[\x20-\x7E\xA0-\xFF\n]*$/.test(s);
 
-export function toast(msg, ms = 2200) {
-  const el = $('#toast'); el.textContent = msg; el.hidden = false;
-  clearTimeout(toast._t); toast._t = setTimeout(() => (el.hidden = true), ms);
-}
-
-// ---------------------------------------------------------------- modal
-export function modal(title, html, { wide } = {}) {
-  const bg = document.createElement('div');
-  bg.className = 'modal-bg';
-  bg.innerHTML = `<div class="modal" role="dialog" aria-modal="true"${wide ? ' style="width:min(760px,100%)"' : ''}><h2>${esc(title)}</h2>${html}</div>`;
-  $('#modalRoot').appendChild(bg);
-  const close = () => bg.remove();
-  bg.addEventListener('mousedown', (e) => { if (e.target === bg) close(); });
-  bg.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
-  applyI18n(bg);
-  return { el: bg.firstElementChild, close };
+async function confirmDiscard() {
+  return !S.dirty || ask(t('unsaved'), { ok: t('discard'), danger: true });
 }
 
 // ---------------------------------------------------------------- history
@@ -76,7 +65,7 @@ async function redo() { if (!S.future.length) return; S.history.push(snapshot())
 
 // ---------------------------------------------------------------- open / load
 async function openFile() {
-  if (S.dirty && !confirm(t('unsaved'))) return;
+  if (!(await confirmDiscard())) return;
   if (isDesktop) {
     try { const f = await nativeOpen(); if (f) openBytes(f.bytes, f.name, f.path); } catch (e) { toast('Open failed: ' + e, 4000); }
     return;
@@ -103,13 +92,13 @@ async function openBytes(bytes, name, handle) {
   if (S.password !== undefined) {
     try { const d = await PDFDocument.load(bytes, { password: S.password }); S.bytes = await d.save(); } catch (e) { console.warn(e); }
   }
-  $('#fileName').textContent = S.name; setTitle(`${S.name} — Documentaan`);
+  $('#fileName').textContent = S.name; setTitle(`${S.name} - Documentaan`);
 }
 
 async function loadPdf(bytes, { keepAnnots }) {
   const task = pdfjs.getDocument({ data: bytes.slice(), password: S.password });
-  task.onPassword = (update) => {
-    const pw = prompt(t('pwPrompt'));
+  task.onPassword = async (update) => {
+    const pw = await promptText(t('protected'), { label: t('pwPrompt'), password: true });
     if (pw === null) { task.destroy(); return; }
     S.password = pw; update(pw);
   };
@@ -122,7 +111,8 @@ async function loadPdf(bytes, { keepAnnots }) {
     const old = S.annots; S.annots = S.vps.map((_, i) => (keepAnnots && old[i]) || []);
   }
   $('#empty').classList.add('hidden');
-  $$('#btnSave,#btnPrint').forEach((b) => (b.disabled = false));
+  $$('#btnSave,#btnPrint,#mSave,#mSaveAs,#mClose').forEach((b) => (b.disabled = false));
+  $('#docTab').hidden = false;
   $('#pageCount').textContent = '/ ' + pdf.numPages;
   $('#pageInput').max = pdf.numPages;
   if (!keepAnnots) fitWidth(true); else layoutPages();
@@ -367,7 +357,7 @@ function bindOverlay(ov, i) {
     if (!el) return;
     const a = S.annots[i][+el.dataset.idx];
     if (a.type === 'text') editText(i, a);
-    if (a.type === 'note') { const v = prompt(t('notePrompt'), a.text); if (v !== null) { pushHistory(); a.text = v; renderOverlay(i); } }
+    if (a.type === 'note') promptText(t('tNote'), { value: a.text, multiline: true }).then((v) => { if (v !== null) { pushHistory(); a.text = v; renderOverlay(i); } });
   });
   ov.addEventListener('pointerdown', (e) => {
     if (e.button !== 0 || e.target.isContentEditable) return;
@@ -407,7 +397,7 @@ function bindOverlay(ov, i) {
     e.preventDefault();
     if (tool === 'text') { pushHistory(); const a = { type: 'text', x, y: y - fontSz() * 0.6, text: '', size: fontSz(), color: color() }; list.push(a); renderOverlay(i); editText(i, a, true); return; }
     if (tool === 'date') { pushHistory(); list.push({ type: 'text', x, y: y - fontSz() * 0.6, text: new Date().toLocaleDateString(), size: fontSz(), color: color() }); renderOverlay(i); return; }
-    if (tool === 'note') { const v = prompt(t('notePrompt')); if (v) { pushHistory(); list.push({ type: 'note', x: x - 10, y: y - 10, text: v }); renderOverlay(i); } return; }
+    if (tool === 'note') { promptText(t('tNote'), { label: t('notePrompt'), multiline: true }).then((v) => { if (v && v.trim()) { pushHistory(); list.push({ type: 'note', x: x - 10, y: y - 10, text: v }); renderOverlay(i); } }); return; }
     if (tool === 'check' || tool === 'cross') { pushHistory(); const s = Math.max(12, fontSz() * 1.2); list.push({ type: 'mark', kind: tool, x: x - s / 2, y: y - s / 2, w: s, h: s, color: color() }); renderOverlay(i); return; }
 
     // drag-to-draw tools
@@ -531,7 +521,7 @@ async function save(saveAs = false) {
     try {
       const path = await nativeSave(out, saveAs ? null : S.handle, S.name);
       if (!path) return;
-      S.handle = path; S.name = baseName(path); $('#fileName').textContent = S.name; setTitle(`${S.name} — Documentaan`);
+      S.handle = path; S.name = baseName(path); $('#fileName').textContent = S.name; setTitle(`${S.name} - Documentaan`);
       S.dirty = false; toast(t('saved') + ' ✓');
     } catch (e) { console.error(e); toast('Save failed: ' + e, 5000); }
     return;
@@ -600,7 +590,7 @@ async function mergePdfs(files) {
 
 async function imagesToPdf(files) {
   files = files || await pickFiles('image/*'); if (!files.length) return;
-  if (S.dirty && !confirm(t('unsaved'))) return;
+  if (!(await confirmDiscard())) return;
   const doc = await PDFDocument.create();
   for (const f of files) {
     let img;
@@ -759,12 +749,22 @@ async function flatten() {
 // ---------------------------------------------------------------- signatures
 function signDialog() {
   if (!S.bytes) return toast(t('needPdf'));
-  openSignatureDialog({ modal, toast, onPick: (sig) => {
+  openSignatureDialog({ modal, toast, ask, onPick: (sig) => {
     let w = 170, h = w * sig.h / sig.w;
     if (h > 80) { h = 80; w = h * sig.w / sig.h; }
     S.placing = { src: sig.dataUrl, w, h };
     setTool('place'); toast(t('clickToPlace'), 3000);
   } });
+}
+
+async function closeDocument() {
+  if (!S.pdf || !(await confirmDiscard())) return;
+  S.pdf.destroy(); S.pdf = null; S.bytes = null; S.annots = []; S.vps = []; S.history = []; S.future = [];
+  S.selected = null; S.dirty = false; S.handle = null; S.protect = null;
+  pagesEl.innerHTML = ''; thumbsEl.innerHTML = ''; $('#searchResults').hidden = true; thumbsEl.hidden = false;
+  $('#empty').classList.remove('hidden'); $('#docTab').hidden = true;
+  $$('#btnSave,#btnPrint,#mSave,#mSaveAs,#mClose').forEach((b) => (b.disabled = true));
+  $('#pageCount').textContent = '/ 0'; setTitle('Documentaan');
 }
 
 // ---------------------------------------------------------------- wiring
@@ -774,10 +774,18 @@ const actions = {
 };
 document.addEventListener('click', (e) => {
   const act = e.target.closest('[data-act]');
-  if (act) { $('#toolsMenu').hidden = true; actions[act.dataset.act]?.(); return; }
-  if (!e.target.closest('.menu')) $('#toolsMenu').hidden = true;
+  const toggle = e.target.closest('#btnMenu,#btnTools');
+  const target = toggle && (toggle.id === 'btnMenu' ? $('#mainMenu') : $('#toolsMenu'));
+  $$('.menu-list').forEach((m) => { if (m !== target) m.hidden = true; });
+  if (target) { target.hidden = !target.hidden; return; }
+  if (e.target.closest('.menu-list button')) $$('.menu-list').forEach((m) => (m.hidden = true));
+  if (act) actions[act.dataset.act]?.();
 });
-$('#btnTools').onclick = () => ($('#toolsMenu').hidden = !$('#toolsMenu').hidden);
+$('#mSave').onclick = () => save(false);
+$('#mSaveAs').onclick = () => save(true);
+$('#mClose').onclick = closeDocument;
+$('#btnHome').onclick = closeDocument;
+bindWindowControls();
 $('#btnOpen').onclick = openFile; $('#btnOpen2').onclick = openFile;
 $('#btnSave').onclick = () => save(false);
 $('#btnPrint').onclick = print;
@@ -825,7 +833,7 @@ window.addEventListener('drop', async (e) => {
   e.preventDefault(); $('.drop')?.classList.remove('over');
   const files = [...e.dataTransfer.files];
   const pdfs = files.filter((f) => f.type === 'application/pdf' || /\.pdf$/i.test(f.name)), imgs = files.filter((f) => f.type.startsWith('image/'));
-  if (pdfs.length === 1 && !S.bytes) { if (!S.dirty || confirm(t('unsaved'))) openBytes(new Uint8Array(await pdfs[0].arrayBuffer()), pdfs[0].name, null); }
+  if (pdfs.length === 1 && !S.bytes) { if (await confirmDiscard()) openBytes(new Uint8Array(await pdfs[0].arrayBuffer()), pdfs[0].name, null); }
   else if (pdfs.length) mergePdfs(pdfs);
   else if (imgs.length) imagesToPdf(imgs);
 });
@@ -834,7 +842,7 @@ applyI18n();
 
 // Desktop app: open PDFs passed by Windows (double-click / "Open with") and guard unsaved close.
 onExternalOpen(async (path) => {
-  if (S.dirty && !confirm(t('unsaved'))) return;
+  if (!(await confirmDiscard())) return;
   try { openBytes(await readPath(path), baseName(path), path); } catch (e) { toast('Open failed: ' + e, 4000); }
 });
-guardClose(() => S.dirty, t('unsaved'));
+guardClose(() => S.dirty, () => ask(t('unsaved'), { ok: t('discard'), danger: true }));

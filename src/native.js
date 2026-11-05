@@ -49,11 +49,26 @@ export async function onExternalOpen(onOpen) {
   const first = await core.invoke('initial_file');
   if (first) onOpen(first);
 }
-/** Ask before closing the window with unsaved changes. */
-export async function guardClose(isDirty, message) {
+/** Ask before closing the window with unsaved changes. confirmFn resolves true to close anyway. */
+export async function guardClose(isDirty, confirmFn) {
   if (!isDesktop) return;
   await libs();
   await win.getCurrentWindow().onCloseRequested(async (e) => {
-    if (isDirty() && !(await dialog.ask(message, { title: 'Documentaan', kind: 'warning' }))) e.preventDefault();
+    if (isDirty() && !(await confirmFn())) e.preventDefault();
   });
+}
+
+/** Wire the custom title bar buttons (the native frame is hidden in the desktop app). */
+export async function bindWindowControls() {
+  if (!isDesktop) return;
+  document.body.classList.add('desktop');
+  document.getElementById('winCtrls').hidden = false;
+  await libs();
+  const w = win.getCurrentWindow();
+  const sync = async () => document.body.classList.toggle('maximized', await w.isMaximized());
+  document.getElementById('wMin').onclick = () => w.minimize();
+  document.getElementById('wMax').onclick = () => w.toggleMaximize();
+  document.getElementById('wClose').onclick = () => w.close();
+  await w.onResized(sync);
+  sync();
 }
