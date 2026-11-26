@@ -97,19 +97,20 @@ function fontInfo(fontDict) {
 
 /**
  * Strip text inside rects (PDF user-space { x, y, w, h }) from a pdf-lib page.
- * Returns the number of text operators removed.
+ * Returns the set of rect indices in which text was removed.
  */
 export function stripTextInRects(doc, page, rects) {
-  if (!rects.length) return 0;
+  const hit = new Set();
+  if (!rects.length) return hit;
   const node = page.node;
   const contents = node.Contents();
-  if (!contents) return 0;
+  if (!contents) return hit;
   const refs = contents instanceof PDFArray ? contents.asArray() : [contents];
   const parts = [];
   for (const r of refs) {
     const st = r instanceof PDFRef ? doc.context.lookup(r) : r;
-    if (!(st instanceof PDFRawStream)) return 0; // unknown stream type: leave the page alone
-    try { parts.push(decodePDFRawStream(st).decode()); } catch { return 0; }
+    if (!(st instanceof PDFRawStream)) return hit; // unknown stream type: leave the page alone
+    try { parts.push(decodePDFRawStream(st).decode()); } catch { return hit; }
   }
   const bytes = new Uint8Array(parts.reduce((t, p) => t + p.length + 1, 0));
   let off = 0; for (const p of parts) { bytes.set(p, off); off += p.length; bytes[off++] = 10; }
@@ -124,7 +125,7 @@ export function stripTextInRects(doc, page, rects) {
     }
     return infoCache.get(name);
   };
-  const inside = (x, y) => rects.some((r) => x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h);
+  const inside = (x, y) => rects.findIndex((r) => x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h);
 
   const toks = tokenize(src);
   const stack = []; let ctm = [1, 0, 0, 1, 0, 0];
@@ -148,7 +149,9 @@ export function stripTextInRects(doc, page, rects) {
     const [sx, sy] = apply(trm, fs * 0.05, rise + fs * 0.3);
     let total = 0;
     for (const e of elems) total += typeof e === 'number' ? (-e / 1000) * fs * th : advance(e);
-    if (inside(sx, sy) && fs > 0 && th) {
+    const ri = inside(sx, sy);
+    if (ri >= 0 && fs > 0 && th) {
+      hit.add(ri);
       const kern = -(total / (fs * th)) * 1000;
       edits.push([start, end, `${lead}[${kern.toFixed(3)}] TJ`]); removed++;
     }
@@ -187,7 +190,7 @@ export function stripTextInRects(doc, page, rects) {
     }
     ops = [];
   }
-  if (!edits.length) return 0;
+  if (!edits.length) return hit;
 
   let outStr = ''; let pos = 0;
   for (const [a, b, rep] of edits.sort((x, y) => x[0] - y[0])) { outStr += src.slice(pos, a) + rep; pos = b; }
@@ -195,5 +198,6 @@ export function stripTextInRects(doc, page, rects) {
   const out = new Uint8Array(outStr.length);
   for (let k = 0; k < outStr.length; k++) out[k] = outStr.charCodeAt(k) & 255;
   node.set(PDFName.of('Contents'), doc.context.register(doc.context.flateStream(out)));
-  return removed;
+  void removed;
+  return hit;
 }

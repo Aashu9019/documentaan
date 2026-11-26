@@ -72,6 +72,7 @@
       <button class="tool" data-tool="whiteout" data-i18n-title="tWhiteout" title="White-out"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="14" height="14" rx="2"/><path d="M5 15l4-4 3 3 3-3 4 4" opacity=".5"/></svg></button>
     </div>
     <div class="group">
+      <button class="tool" id="btnImage" data-i18n-title="tImage" title="Insert image"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="M21 16l-5-5-8 8"/></svg></button>
       <button class="btn sign" id="btnSign"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17c3-6 5-6 6-2s3 3 6-3"/><path d="M14 20h7"/></svg><span data-i18n="sign">Sign</span></button>
     </div>
     <div class="group">
@@ -110,18 +111,32 @@
     </aside>
     <section class="viewer" id="viewer">
       <div class="empty" id="empty">
-        <div class="drop">
-          <img src="/icon.svg" alt="" width="64" height="64" />
-          <h1 data-i18n="welcome">Welcome to Documentaan</h1>
-          <p data-i18n="dropHint">Drop a PDF here or click Open. Everything stays on your computer.</p>
-          <div class="row">
-            <button class="btn primary" id="btnOpen2" data-i18n="open">Open</button>
-            <button class="btn" data-act="images" data-i18n="imagesToPdf">Images to PDF</button>
-            <button class="btn" data-act="merge" data-i18n="merge">Merge PDFs</button>
-            <button class="btn" data-act="compress" data-i18n="compress">Compress PDF</button>
-          </div>
+        <div class="home">
+          <section class="home-hero drop">
+            <img src="/icon.svg" alt="" width="52" height="52" />
+            <div>
+              <h1 data-i18n="welcome">Welcome to Documentaan</h1>
+              <p data-i18n="dropHint">Drop a PDF here or click Open. Everything stays on your computer.</p>
+            </div>
+            <div class="row">
+              <button class="btn primary" id="btnOpen2" data-i18n="open">Open</button>
+              <button class="btn" data-act="compress" data-i18n="compress">Compress PDF</button>
+              <button class="btn" data-act="merge" data-i18n="merge">Merge PDFs</button>
+              <button class="btn" data-act="images" data-i18n="imagesToPdf">Images to PDF</button>
+            </div>
+          </section>
+          <section class="home-tpl">
+            <div class="home-tpl-head">
+              <div><h2 data-i18n="templates">Templates</h2><p class="muted" data-i18n="templatesSub">Reusable designs saved on this device</p></div>
+              <button class="btn primary" id="btnNewTpl" data-i18n="newTemplate">New template</button>
+            </div>
+            <div class="chips" id="tplChips"></div>
+            <div class="tpl-grid" id="tplGrid"></div>
+          </section>
         </div>
       </div>
+      <div class="tpl-bar" id="tplBar" hidden></div>
+      <div class="prop-bar" id="propBar" hidden></div>
       <div id="pages"></div>
     </section>
   </main>
