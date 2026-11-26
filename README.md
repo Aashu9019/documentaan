@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="public/icon.svg" width="96" alt="Documentaan logo">
+  <img src="public/logo.png" width="96" alt="Documentaan logo">
 </p>
 
 <h1 align="center">Documentaan (डकुमेन्टान)</h1>
@@ -33,6 +33,8 @@
 | View | Open any PDF, zoom (Ctrl + mouse wheel), fit to width, page thumbnails, search text, light and dark theme |
 | Sign | Draw, type (several handwriting fonts) or upload a signature image with automatic background removal. Save unlimited signatures and initials, then place and resize them anywhere |
 | Templates | Create templates from a PDF (Canva: Share > Download > PDF), a background image such as a letterhead, or a blank page. Organise them in categories, edit the design any time, duplicate or delete them, and click Use template to fill in a new document. Templates are stored on your device |
+| Fonts | Pick any installed font for added or edited text (Times New Roman, Arial, Calibri, Georgia, Verdana, Segoe UI, Garamond, Century Gothic and more), with Word-style sizes, bold and italic. Fonts are embedded in the saved PDF so it looks the same everywhere. Edit text reuses the PDF's original font when it is installed |
+| Page setup | Switch pages between portrait and landscape, change to A4 or Letter, for one page or all pages, keeping the content upright or rotating it |
 | Images | Insert logos, photos and letterheads. Adjust size, opacity, keep or free the proportions, fit to width, fill the page, place behind the text, copy to all pages |
 | Edit text | Click any existing text, number or table cell to change or delete it. The original text is truly removed (not just covered), and the new text matches the original size, weight, colour and background |
 | Annotate | Text, highlight, freehand pen, rectangle, ellipse, line (hold Shift to snap), sticky notes, check and cross marks, today's date, white-out |
@@ -84,7 +86,8 @@ To uninstall, open **Settings > Apps > Installed apps**, find Documentaan and cl
 
 - Nepali (Devanagari) text you add is stored as a sharp image inside the PDF, because the built-in PDF fonts only cover Latin letters. It looks correct but cannot be selected or searched.
 - Rotating a page merges that document's annotations into the page, so they can no longer be moved afterwards.
-- Edit text works line by line: a longer edit does not push the following lines down, and table rows or columns cannot be added. Edited text uses the closest standard font (Helvetica, Times or Courier) squeezed to the original width, so unusual fonts are approximated.
+- Edit text works line by line: a longer edit does not push the following lines down, and table rows or columns cannot be added. Edited text uses the original font when it is installed on your PC; otherwise the closest standard font (Helvetica, Times or Courier) squeezed to the original width.
+- A few fonts, such as Calibri, cannot be trimmed to the characters you use, so they are embedded whole and add about 0.8 MB to the saved PDF.
 - Templates are stored inside the app on this device. They are not synced between computers, and uninstalling the app removes them.
 - Scanned documents are images, so their text cannot be edited (OCR is not supported yet).
 

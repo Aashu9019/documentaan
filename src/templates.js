@@ -144,7 +144,7 @@ async function newTemplateDialog() {
         else { const [kind, o] = ps.split('-'); size = [...PAGE_SIZES[kind]]; if (o === 'l') size.reverse(); }
         const doc = await PDFDocument.create(); doc.addPage(size);
         bytes = await doc.save();
-        annots = [img ? [{ type: 'img', x: 0, y: 0, w: size[0], h: size[1], src: img.src, opacity: 1, behind: true }] : []];
+        annots = [img ? [{ type: 'img', x: 0, y: 0, w: size[0], h: size[1], src: img.src, opacity: 1, behind: true, ratio: img.h / img.w, free: false }] : []];
         name ||= t('untitledTpl');
       }
     } catch (e) { console.error(e); api.toast('Error: ' + e.message, 4000); return; }

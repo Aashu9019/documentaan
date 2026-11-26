@@ -4,7 +4,9 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Documentaan</title>
-  <link rel="icon" href="/icon.svg" />
+  <link rel="icon" href="/favicon.ico" sizes="any" />
+  <link rel="icon" type="image/png" href="/logo.png" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
 </head>
 <body>
   <header class="titlebar" data-tauri-drag-region>
@@ -29,6 +31,7 @@
           <button data-act="split"><span data-i18n="split">Split / Extract pages</span></button>
           <button data-act="images"><span data-i18n="imagesToPdf">Images to PDF</span></button>
           <button data-act="insertBlank"><span data-i18n="insertBlank">Insert blank page</span></button>
+          <button data-act="pageSetup"><span data-i18n="pageSetup">Page setup (portrait / landscape)</span></button>
           <hr>
           <button data-act="watermark"><span data-i18n="watermark">Watermark</span></button>
           <button data-act="pageNumbers"><span data-i18n="pageNumbers">Page numbers</span></button>
@@ -42,7 +45,7 @@
         <span class="doc-ico">PDF</span><span class="file-name" id="fileName" data-tauri-drag-region></span><span class="dirty-dot" title="Unsaved changes"></span>
       </div>
     </div>
-    <div class="tb-center" data-tauri-drag-region><img src="/icon.svg" alt="" width="16" height="16" data-tauri-drag-region><span data-i18n="appName" data-tauri-drag-region>Documentaan</span></div>
+    <div class="tb-center" data-tauri-drag-region><img src="/logo.png" alt="" width="16" height="16" data-tauri-drag-region><span data-i18n="appName" data-tauri-drag-region>Documentaan</span></div>
     <div class="tb-right">
       <button class="tb-btn save-btn" id="btnSave" disabled><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h11l3 3v13H5z"/><path d="M8 4v5h7V4M8 20v-6h8v6"/></svg><span data-i18n="save">Save</span></button>
       <button class="tb-btn icon" id="btnLang" title="Language">ने</button>
@@ -113,7 +116,7 @@
       <div class="empty" id="empty">
         <div class="home">
           <section class="home-hero drop">
-            <img src="/icon.svg" alt="" width="52" height="52" />
+            <img src="/logo.png" alt="" width="52" height="52" />
             <div>
               <h1 data-i18n="welcome">Welcome to Documentaan</h1>
               <p data-i18n="dropHint">Drop a PDF here or click Open. Everything stays on your computer.</p>

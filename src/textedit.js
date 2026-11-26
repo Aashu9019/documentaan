@@ -20,6 +20,7 @@ function fontStyle(page, item, styles) {
     : /times|georgia|cambria|garamond|book|roman|minion|palatino|(^|[^s])serif/.test(all) && !/sans/.test(all) ? 'serif' : 'sans';
   return {
     family,
+    fontName: real,
     bold: /bold|black|heavy|semibold|demi/.test(all),
     italic: /italic|oblique/.test(all),
     ascent: styles[item.fontName]?.ascent || 0.8,

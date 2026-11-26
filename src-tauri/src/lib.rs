@@ -43,6 +43,31 @@ fn write_file(request: Request) -> Result<(), String> {
     }
 }
 
+/// Installed font files (.ttf/.otf) from the system and per-user font folders.
+#[tauri::command]
+fn list_fonts() -> Vec<String> {
+    let mut dirs = vec![std::path::PathBuf::from(
+        std::env::var("WINDIR").unwrap_or_else(|_| r"C:\Windows".into()),
+    )
+    .join("Fonts")];
+    if let Ok(local) = std::env::var("LOCALAPPDATA") {
+        dirs.push(Path::new(&local).join("Microsoft").join("Windows").join("Fonts"));
+    }
+    let mut out = Vec::new();
+    for d in dirs {
+        if let Ok(entries) = std::fs::read_dir(&d) {
+            for e in entries.flatten() {
+                let p = e.path();
+                let ext = p.extension().and_then(|x| x.to_str()).unwrap_or("").to_ascii_lowercase();
+                if ext == "ttf" || ext == "otf" {
+                    out.push(p.to_string_lossy().into_owned());
+                }
+            }
+        }
+    }
+    out
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -57,7 +82,7 @@ pub fn run() {
             }
         }))
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![initial_file, read_file, write_file])
+        .invoke_handler(tauri::generate_handler![initial_file, read_file, write_file, list_fonts])
         .run(tauri::generate_context!())
         .expect("error while running Documentaan");
 }

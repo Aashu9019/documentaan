@@ -15,7 +15,9 @@ import { t, applyI18n, toggleLang } from './i18n.js';
 import { openSignatureDialog } from './signature.js';
 import { toast, modal, ask, promptText } from './ui.js';
 import { compressPdf, formatSize } from './compress.js';
-import { initTemplates, renderGallery, categorySelect, bindCategorySelect, imageToDataUrl } from './templates.js';
+import fontkit from '@cantoo/fontkit';
+import { installedFonts, fontBytes, matchInstalled, FONT_SIZES } from './fonts.js';
+import { initTemplates, renderGallery, categorySelect, bindCategorySelect, imageToDataUrl, PAGE_SIZES } from './templates.js';
 import { putTemplate, getTemplate } from './store.js';
 import { isDesktop, nativeOpen, nativeSave, readPath, baseName, setTitle, onExternalOpen, guardClose, bindWindowControls } from './native.js';
 
@@ -300,37 +302,53 @@ function resize(a, a0, dx, dy, el) {
 
 // ---------------------------------------------------------------- annotations: rendering
 function renderAllOverlays() { S.annots.forEach((_, i) => renderOverlay(i)); updatePropBar(); }
+// Each annotation keeps its own DOM element between renders, so dragging and
+// drawing only update positions: images are never re-created (no flicker).
+const elCache = new WeakMap();
 function renderOverlay(i) {
   const ov = pagesEl.children[i]?.querySelector('.overlay'); if (!ov) return;
-  ov.innerHTML = '';
-  const k = S.scale;
+  const k = S.scale, want = [];
   (S.annots[i] || []).forEach((a, idx) => {
-    const b = bbox(a), el = document.createElement('div');
-    el.className = 'an ' + a.type; el.dataset.idx = idx;
+    let el = elCache.get(a);
+    if (!el || el.dataset.type !== a.type) { el = document.createElement('div'); el.dataset.type = a.type; elCache.set(a, el); }
+    el.dataset.idx = idx;
+    // Never touch an element while its text is being typed in.
+    if (el.isContentEditable || el.querySelector('[contenteditable="true"],[contenteditable="plaintext-only"]')) { want.push(el); return; }
+    const b = bbox(a);
+    el.className = 'an ' + a.type;
+    el.removeAttribute('style');
+    el.querySelectorAll(':scope > .handle').forEach((h) => h.remove());
     el.style.left = b.x * k + 'px'; el.style.top = b.y * k + 'px';
     if (a.type === 'text') {
-      el.textContent = a.text; el.style.fontSize = a.size * k + 'px'; el.style.color = a.color;
-      el.style.fontFamily = CSS_FAMILY[a.family || 'sans']; el.style.fontWeight = a.bold ? 700 : 400; el.style.fontStyle = a.italic ? 'italic' : 'normal';
+      if (el.textContent !== a.text) el.textContent = a.text;
+      el.style.fontSize = a.size * k + 'px'; el.style.color = a.color;
+      el.style.fontFamily = cssFamily(a); el.style.fontWeight = a.bold ? 700 : 400; el.style.fontStyle = a.italic ? 'italic' : 'normal';
     } else if (a.type === 'textedit') {
       el.style.width = b.w * k + 'px'; el.style.height = b.h * k + 'px'; el.style.background = a.bg;
-      el.innerHTML = `<span class="te-text" style="${teStyle(a, b, k)}">${esc(a.text)}</span>`;
+      const html = `<span class="te-text" style="${teStyle(a, b, k)}">${esc(a.text)}</span>`;
+      if (el._html !== html) { el.innerHTML = html; el._html = html; }
     } else if (a.type === 'note') {
-      el.innerHTML = `<div class="tip">${esc(a.text)}</div>`;
+      const html = `<div class="tip">${esc(a.text)}</div>`;
+      if (el._html !== html) { el.innerHTML = html; el._html = html; }
       el.style.transform = `scale(${k})`; el.style.transformOrigin = '0 0';
     } else {
       el.style.width = b.w * k + 'px'; el.style.height = b.h * k + 'px';
       if (a.type === 'img') {
-        el.innerHTML = `<img src="${a.src}" alt="">`;
+        let img = el.querySelector(':scope > img');
+        if (!img) { el.innerHTML = ''; img = new Image(); img.alt = ''; img.draggable = false; img.decoding = 'async'; el.appendChild(img); }
+        if (img.getAttribute('src') !== a.src) img.src = a.src;
         el.style.opacity = a.opacity ?? 1;
         if (a.behind) el.classList.add('behind');
+      } else {
+        const html = svgFor(a, b, k);
+        if (el._html !== html) { el.innerHTML = html; el._html = html; }
       }
-      else el.innerHTML = svgFor(a, b, k);
     }
     if (S.selected && S.selected.page === i && S.selected.a === a) {
       el.classList.add('sel');
       if (a.type !== 'note' && a.type !== 'textedit') el.insertAdjacentHTML('beforeend', '<div class="handle"></div>');
     }
-    ov.appendChild(el);
+    want.push(el);
   });
   // Edit-text mode: outline every piece of original text that can be edited.
   if (S.tool === 'edittext' && S.blocks[i]) {
@@ -340,14 +358,23 @@ function renderOverlay(i) {
       const tb = document.createElement('div');
       tb.className = 'tb'; tb.dataset.key = blk.key;
       tb.style.cssText = `left:${(blk.x - 2) * k}px;top:${(blk.y - 1) * k}px;width:${(blk.w + 4) * k}px;height:${(blk.h + 2) * k}px`;
-      ov.appendChild(tb);
+      want.push(tb);
     }
   }
+  // Put elements in order, moving only those that are out of place.
+  want.forEach((el, pos) => { if (ov.children[pos] !== el) ov.insertBefore(el, ov.children[pos] || null); });
+  while (ov.children.length > want.length) ov.lastChild.remove();
+}
+// Coalesce renders to one per animation frame while the pointer moves.
+const pendingRender = new Set(); let renderRaf = 0;
+function scheduleRender(i) {
+  pendingRender.add(i);
+  if (!renderRaf) renderRaf = requestAnimationFrame(() => { renderRaf = 0; const l = [...pendingRender]; pendingRender.clear(); l.forEach(renderOverlay); });
 }
 function teStyle(a, b, k) {
   const top = (a.baseline - b.y - 0.845 * a.size) * k;
   const pos = a.align === 'center' ? `left:50%;transform:translateX(-50%) scaleX(${a.sq});transform-origin:50% 0` : `left:${1 * k}px;transform:scaleX(${a.sq})`;
-  return `${pos};top:${top}px;font-family:${CSS_FAMILY[a.family]};font-size:${a.size * k}px;` +
+  return `${pos};top:${top}px;font-family:${cssFamily(a).replace(/"/g, "'")};font-size:${a.size * k}px;` +
     `font-weight:${a.bold ? 700 : 400};font-style:${a.italic ? 'italic' : 'normal'};color:${a.color}`;
 }
 function svgFor(a, b, k) {
@@ -405,11 +432,13 @@ async function startBlockEdit(i, key, pt) {
   const b = S.blocks[i]?.find((x) => x.key === key); if (!b) return;
   const canvas = pagesEl.children[i]?.querySelector('canvas.pdf');
   const { bg, color: ink } = sampleColors(canvas, b, S.scale * dpr());
-  const sq = await squeezeFor(b);
+  let sq = await squeezeFor(b), font;
+  const fam = latinSafe(b.text) ? await matchInstalled(b.fontName) : null;
+  if (fam) { const w = await widthIn(fam, b.bold, b.italic, b.text, b.size); if (w) { font = fam; sq = Math.max(0.7, Math.min(1.15, b.w / w)); } }
   pushHistory();
   const pw = S.vps[i].width, center = Math.abs(b.x + b.w / 2 - pw / 2) < pw * 0.03 && b.x > pw * 0.08;
   const a = { type: 'textedit', key, x: b.x, y: b.y, w: b.w, h: b.h, baseline: b.baseline, size: b.size, align: center ? 'center' : 'left',
-    family: b.family, bold: b.bold, italic: b.italic, color: ink, bg, sq, orig: b.text, text: b.text };
+    family: b.family, font, bold: b.bold, italic: b.italic, color: ink, bg, sq, orig: b.text, text: b.text };
   S.annots[i].push(a); renderOverlay(i); editBlock(i, a, true, pt);
 }
 // Put the caret where the user clicked; select everything only when there is no click point.
@@ -436,6 +465,7 @@ function editBlock(i, a, isNew, pt) {
   });
   span.addEventListener('blur', () => {
     a.text = cancelled ? before : span.innerText.replace(/\s*\n\s*/g, ' ');
+    span.removeAttribute('contenteditable'); el.classList.remove('editing'); el._html = null;
     if (a.text === a.orig && isNew) { S.annots[i].splice(S.annots[i].indexOf(a), 1); S.history.pop(); }
     else if (a.text === before && !isNew) S.history.pop();
     renderOverlay(i);
@@ -501,12 +531,13 @@ function bindOverlay(ov, i) {
       const move = (ev) => {
         const [x2, y2] = pt(ev), dx = x2 - x, dy = y2 - y;
         if (!moved && Math.hypot(dx, dy) < 1) return;
-        if (!moved) { pushHistory(); moved = true; }
+        if (!moved) { pushHistory(); moved = true; ov.classList.add('dragging'); }
         if (isHandle) resize(a, a0, dx, dy, { _w0: w0 }); else translate(a, a0, dx, dy);
-        renderOverlay(i);
+        scheduleRender(i);
       };
       const up = () => {
         ov.removeEventListener('pointermove', move); ov.removeEventListener('pointerup', up);
+        ov.classList.remove('dragging'); renderOverlay(i);
         if (moved && isHandle && a.sigId) rememberSigSize(a.sigId, a.w, a.h);
         updatePropBar();
       };
@@ -514,7 +545,7 @@ function bindOverlay(ov, i) {
       e.preventDefault(); return;
     }
     e.preventDefault();
-    if (tool === 'text') { pushHistory(); const a = { type: 'text', x, y: y - fontSz() * 0.6, text: '', size: fontSz(), color: color() }; list.push(a); renderOverlay(i); editText(i, a, true); return; }
+    if (tool === 'text') { pushHistory(); const a = { type: 'text', x, y: y - fontSz() * 0.6, text: '', size: fontSz(), color: color(), ...S.textStyle }; list.push(a); renderOverlay(i); editText(i, a, true); return; }
     if (tool === 'date') { pushHistory(); list.push({ type: 'text', x, y: y - fontSz() * 0.6, text: new Date().toLocaleDateString(), size: fontSz(), color: color() }); renderOverlay(i); return; }
     if (tool === 'note') { promptText(t('tNote'), { label: t('notePrompt'), multiline: true }).then((v) => { if (v && v.trim()) { pushHistory(); list.push({ type: 'note', x: x - 10, y: y - 10, text: v }); renderOverlay(i); } }); return; }
     if (tool === 'check' || tool === 'cross') { pushHistory(); const s = Math.max(12, fontSz() * 1.2); list.push({ type: 'mark', kind: tool, x: x - s / 2, y: y - s / 2, w: s, h: s, color: color() }); renderOverlay(i); return; }
@@ -532,7 +563,7 @@ function bindOverlay(ov, i) {
       if (tool === 'pen') a.points.push([x2, y2]);
       else if (tool === 'line') a.points[1] = ev.shiftKey ? snap45(x, y, x2, y2) : [x2, y2];
       else { a.x = Math.min(x, x2); a.y = Math.min(y, y2); a.w = Math.abs(x2 - x); a.h = Math.abs(y2 - y); }
-      renderOverlay(i);
+      scheduleRender(i);
     };
     const up = () => {
       ov.removeEventListener('pointermove', move); ov.removeEventListener('pointerup', up);
@@ -555,6 +586,7 @@ function editText(i, a, isNew, pt) {
   if (pt) placeCaret(el, pt); else { const sel = getSelection(); sel.selectAllChildren(el); sel.collapseToEnd(); }
   el.addEventListener('blur', () => {
     a.text = el.innerText.replace(/\n$/, '');
+    el.removeAttribute('contenteditable');
     if (!a.text.trim()) S.annots[i].splice(S.annots[i].indexOf(a), 1);
     renderOverlay(i);
   }, { once: true });
@@ -570,7 +602,7 @@ function deleteSelected() {
 // ---------------------------------------------------------------- bake annotations into PDF (pdf-lib)
 function rasterText(text, size, colorHex, style = {}) {
   const k = 4, lines = text.split('\n'), c = document.createElement('canvas'), g = c.getContext('2d');
-  const font = `${style.italic ? 'italic ' : ''}${style.bold ? 700 : 400} ${size * k}px ${style.family === 'serif' ? '"Times New Roman", serif' : style.family === 'mono' ? '"Courier New", monospace' : 'Helvetica, Arial'}, "Nirmala UI", "Noto Sans Devanagari", sans-serif`;
+  const font = `${style.italic ? 'italic ' : ''}${style.bold ? 700 : 400} ${size * k}px ${style.font ? `"${style.font}", ` : ''}${style.family === 'serif' ? '"Times New Roman", serif' : style.family === 'mono' ? '"Courier New", monospace' : 'Helvetica, Arial'}, "Nirmala UI", "Noto Sans Devanagari", sans-serif`;
   g.font = font;
   const w = Math.max(...lines.map((l) => g.measureText(l).width), 1);
   c.width = Math.ceil(w); c.height = Math.ceil(lines.length * size * 1.2 * k);
@@ -584,6 +616,22 @@ async function bake({ forSave }) {
   const doc = await loadLib();
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const imgCache = new Map(), fontCache = new Map();
+  doc.registerFontkit(fontkit);
+  // Installed font (embedded as a subset) when chosen and available, else the closest standard font.
+  const pdfFont = async (a) => {
+    if (a.font) {
+      const key = `${a.font}|${!!a.bold}|${!!a.italic}`;
+      if (!fontCache.has(key)) {
+        const bytes = await fontBytes(a.font, a.bold, a.italic);
+        const mode = bytes ? await embedMode(key, bytes) : 'none';
+        fontCache.set(key, mode === 'none' ? null : await doc.embedFont(bytes, { subset: mode === 'subset' }).catch(() => null));
+      }
+      if (fontCache.get(key)) return fontCache.get(key);
+    }
+    const name = stdFontName({ family: a.family || 'sans', bold: a.bold, italic: a.italic });
+    if (!fontCache.has(name)) fontCache.set(name, await doc.embedFont(name));
+    return fontCache.get(name);
+  };
   const embed = async (src) => {
     if (!imgCache.has(src)) imgCache.set(src, src.startsWith('data:image/jpeg') ? await doc.embedJpg(dataUrlBytes(src)) : await doc.embedPng(dataUrlBytes(src)));
     return imgCache.get(src);
@@ -618,21 +666,19 @@ async function bake({ forSave }) {
       else if (a.type === 'text') {
         const ok = latinSafe(a.text);
         if (ok) {
-          const name = stdFontName({ family: a.family || 'sans', bold: a.bold, italic: a.italic });
-          if (!fontCache.has(name)) fontCache.set(name, await doc.embedFont(name));
+          const pf = await pdfFont(a);
           const [px, py] = P(a.x, a.y + a.size * 0.93);
-          page.drawText(a.text, { x: px, y: py, size: a.size, font: fontCache.get(name), color: c, lineHeight: a.size * 1.2, rotate: degrees(R) });
+          page.drawText(a.text, { x: px, y: py, size: a.size, font: pf, color: c, lineHeight: a.size * 1.2, rotate: degrees(R) });
         } else { const r = rasterText(a.text, a.size, a.color, a); await drawImg(r.url, a.x, a.y, r.w, r.h); }
       } else if (a.type === 'textedit') {
         if (needsCover.has(a)) { const b = box({ x: a.x - 1, y: a.y - 1, w: a.w + 2, h: a.h + 2 }); page.drawRectangle({ x: b.x, y: b.y, width: b.w, height: b.h, color: hexRgb(a.bg) }); }
         if (a.text.trim()) {
           if (latinSafe(a.text)) {
-            const name = stdFontName(a);
-            if (!fontCache.has(name)) fontCache.set(name, await doc.embedFont(name));
-            const tw = fontCache.get(name).widthOfTextAtSize(a.text, a.size) * a.sq;
+            const pf = await pdfFont(a);
+            const tw = pf.widthOfTextAtSize(a.text, a.size) * a.sq;
             const [px, py] = P(a.align === 'center' ? a.x + (a.w - tw) / 2 : a.x, a.baseline);
             page.pushOperators(pushGraphicsState(), setCharacterSqueeze(a.sq * 100));
-            page.drawText(a.text, { x: px, y: py, size: a.size, font: fontCache.get(name), color: c });
+            page.drawText(a.text, { x: px, y: py, size: a.size, font: pf, color: c });
             page.pushOperators(popGraphicsState());
           } else { const r = rasterText(a.text, a.size, a.color, a); await drawImg(r.url, a.align === 'center' ? a.x + (a.w - r.w) / 2 : a.x, a.y, r.w, r.h); }
         }
@@ -1033,7 +1079,7 @@ async function closeDocument() {
 
 // ---------------------------------------------------------------- wiring
 const actions = {
-  merge: () => mergePdfs(), compress: compressDialog, split: splitDialog, images: () => imagesToPdf(), insertBlank,
+  merge: () => mergePdfs(), compress: compressDialog, pageSetup: () => pageSetupDialog(), split: splitDialog, images: () => imagesToPdf(), insertBlank,
   watermark: watermarkDialog, pageNumbers: pageNumbersDialog, protect: protectDialog, forms: formsDialog, flatten,
 };
 document.addEventListener('click', (e) => {
@@ -1150,6 +1196,10 @@ async function showTemplateBar() {
   bar.innerHTML = `<span class="tb-badge">${esc(t('template'))}</span>
     <input id="tplName" value="${esc(S.template.name)}" aria-label="${esc(t('tplName'))}">
     ${await categorySelect(S.template.category)}
+    <div class="seg" role="group" aria-label="${esc(t('orientation'))}">
+      <button class="seg-btn" data-orient="portrait" title="${esc(t('portrait'))}"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.9"><rect x="6" y="3" width="12" height="18" rx="1.5"/></svg></button>
+      <button class="seg-btn" data-orient="landscape" title="${esc(t('landscape'))}"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.9"><rect x="3" y="6" width="18" height="12" rx="1.5"/></svg></button>
+    </div>
     <span class="grow"></span>
     <button class="btn" id="tplUse">${esc(t('useTpl'))}</button>
     <button class="btn primary" id="tplSave">${esc(t('saveTpl'))}</button>`;
@@ -1157,7 +1207,79 @@ async function showTemplateBar() {
   nameEl.oninput = () => { S.template.name = nameEl.value.trim() || S.template.name; S.dirty = true; $('#fileName').textContent = `${t('template')}: ${S.template.name}`; };
   bindCategorySelect(cat, (v) => { S.template.category = v; S.dirty = true; });
   $('#tplSave').onclick = () => saveTemplateNow();
+  const syncSeg = () => { const land = S.vps[0] && S.vps[0].width > S.vps[0].height; bar.querySelectorAll('[data-orient]').forEach((b) => b.classList.toggle('on', (b.dataset.orient === 'landscape') === land)); };
+  bar.querySelectorAll('[data-orient]').forEach((b) => (b.onclick = async () => { await applyPageSetup({ orient: b.dataset.orient, size: 'keep', scope: 'all', mode: 'reshape' }); syncSeg(); }));
+  syncSeg();
   $('#tplUse').onclick = async () => { await saveTemplateNow(true); const tpl = await getTemplate(S.template.id); openTemplate(tpl, 'use'); };
+}
+
+// ---------------------------------------------------------------- page setup (orientation + size)
+function pageSetupDialog() {
+  if (!S.bytes) return toast(t('needPdf'));
+  const cur = S.vps[Math.max(0, currentPage() - 1)], land = cur.width > cur.height;
+  const m = modal(t('pageSetup'), `
+    <label>${esc(t('orientation'))}</label>
+    <div class="levels" style="grid-template-columns:1fr 1fr">
+      <label class="level${land ? '' : ' on'}"><input type="radio" name="or" value="portrait"${land ? '' : ' checked'}><span class="or-ico p"></span><b>${esc(t('portrait'))}</b></label>
+      <label class="level${land ? ' on' : ''}"><input type="radio" name="or" value="landscape"${land ? ' checked' : ''}><span class="or-ico l"></span><b>${esc(t('landscape'))}</b></label>
+    </div>
+    <label>${esc(t('pageSize'))}</label>
+    <select id="psz"><option value="keep">${esc(t('keepSize'))}</option><option value="a4">A4 (210 x 297 mm)</option><option value="letter">Letter (8.5 x 11 in)</option></select>
+    <label>${esc(t('applyTo'))}</label>
+    <select id="psc"><option value="all">${esc(t('allPages2'))}</option><option value="this">${esc(t('thisPage'))} (${currentPage()})</option></select>
+    <label>${esc(t('howChange'))}</label>
+    <select id="pmo"><option value="reshape">${esc(t('reshape'))}</option><option value="rotate">${esc(t('rotatePages'))}</option></select>
+    <div class="actions"><button class="btn" id="c">${esc(t('cancel'))}</button><button class="btn primary" id="ok">${esc(t('apply'))}</button></div>`);
+  m.el.querySelectorAll('.level').forEach((l) => l.addEventListener('change', () => m.el.querySelectorAll('.level').forEach((x) => x.classList.toggle('on', x.querySelector('input').checked))));
+  m.el.querySelector('#c').onclick = m.close;
+  m.el.querySelector('#ok').onclick = async () => {
+    const opts = { orient: m.el.querySelector('input[name=or]:checked').value, size: m.el.querySelector('#psz').value, scope: m.el.querySelector('#psc').value, mode: m.el.querySelector('#pmo').value };
+    m.close(); await applyPageSetup(opts);
+  };
+}
+async function applyPageSetup({ orient, size, scope, mode }) {
+  if (!S.bytes) return;
+  const idx = scope === 'this' ? [Math.max(0, currentPage() - 1)] : [...S.vps.keys()];
+  const want = (w, h) => (orient === 'landscape') === (w > h);
+  if (mode === 'rotate') {
+    pushHistory(); await bakeIntoBase();
+    const doc = await loadLib();
+    for (const i of idx) { const p = doc.getPage(i), v = S.vps[i]; if (!want(v.width, v.height)) p.setRotation(degrees((p.getRotation().angle + 90) % 360)); }
+    await loadPdf(await doc.save(), { keepAnnots: true });
+  } else {
+    const old = S.vps.map((v) => ({ w: v.width, h: v.height }));
+    await mutate((doc) => {
+      for (const i of idx) {
+        const p = doc.getPage(i);
+        if (p.getRotation().angle % 180) p.setRotation(degrees(0)); // reshape works on upright pages
+        const mb = p.getMediaBox();
+        const lo = Math.min(mb.width, mb.height), hi = Math.max(mb.width, mb.height);
+        let [W, H] = size === 'keep' ? [lo, hi] : [...PAGE_SIZES[size]];
+        if (orient === 'landscape') [W, H] = [Math.max(W, H), Math.min(W, H)]; else [W, H] = [Math.min(W, H), Math.max(W, H)];
+        // Keep the page's top-left corner where it is, so the layout stays anchored.
+        p.translateContent(-mb.x, H - (mb.y + mb.height));
+        p.setMediaBox(0, 0, W, H); p.setCropBox(0, 0, W, H);
+        try { p.setTrimBox(0, 0, W, H); p.setBleedBox(0, 0, W, H); p.setArtBox(0, 0, W, H); } catch {}
+        // Layers: stretch full-page backgrounds, keep everything else on the page.
+        for (const a of S.annots[i] || []) {
+          const o = old[i];
+          // Full-width backgrounds: stretch only if the user chose "Fill page" (free); otherwise keep
+          // their proportions, span the new width and stay anchored to the top (letterheads stay crisp).
+          if (a.type === 'img' && Math.abs(a.x) < 2 && Math.abs(a.y) < 2 && Math.abs(a.w - o.w) < 3) {
+            a.ratio ||= a.h / a.w;
+            if (a.free) { a.w = W; a.h = H; } else { a.w = W; a.h = W * a.ratio; }
+            continue;
+          }
+          if (a.points) continue;
+          if (typeof a.x === 'number') a.x = Math.max(0, Math.min(a.x, W - Math.min(a.w || 20, W)));
+          if (typeof a.y === 'number') a.y = Math.max(0, Math.min(a.y, H - Math.min(a.h || 20, H)));
+        }
+      }
+    });
+    S.blocks = []; resetBlocks();
+  }
+  fitWidth(false);
+  toast(t('done') + ' ✓');
 }
 
 // ---------------------------------------------------------------- image tool
@@ -1197,8 +1319,8 @@ function updatePropBar() {
       <button class="pb-btn" data-p="fill" title="${esc(t('fillPage'))}">${icon('<rect x="4" y="4" width="16" height="16" rx="1"/><path d="M4 9h16M9 4v16" opacity=".4"/>')}</button>
       <button class="pb-btn" data-p="allpages" title="${esc(t('copyAllPages'))}">${icon('<rect x="7" y="3" width="12" height="15" rx="1.5"/><path d="M5 7v13h11"/>')}</button>`;
   } else if (a.type === 'text' || a.type === 'textedit') {
-    html = `<select data-p="family"><option value="sans">Sans</option><option value="serif">Serif</option><option value="mono">Mono</option></select>
-      <input type="number" data-p="size" min="4" max="200" step="0.5" title="${esc(t('fontSizeL'))}">
+    html = `<select data-p="family" class="font-pick" title="${esc(t('font'))}">${fontOptions()}</select>
+      <input type="number" data-p="size" list="fontSizes" min="4" max="400" step="0.5" title="${esc(t('fontSizeL'))}">
       <input type="color" data-p="color" title="Color">
       <button class="pb-btn tog bold" data-p="bold" title="Bold"><b>B</b></button>
       <button class="pb-btn tog" data-p="italic" title="Italic"><i style="font-family:serif">I</i></button>`;
@@ -1215,7 +1337,7 @@ function syncPropValues(a) {
   if (q('opacity')) { q('opacity').value = Math.round((a.opacity ?? 1) * 100); v('opacity').textContent = q('opacity').value + '%'; }
   q('behind')?.classList.toggle('on', !!a.behind);
   q('lock')?.classList.toggle('on', !a.free);
-  if (q('family')) q('family').value = a.family || 'sans';
+  if (q('family')) q('family').value = a.font ? 'font:' + a.font : 'std:' + (a.family || 'sans');
   if (q('size') && document.activeElement !== q('size')) q('size').value = +(+a.size).toFixed(1);
   if (q('color')) q('color').value = /^#[0-9a-f]{6}$/i.test(a.color || '') ? a.color : '#000000';
   q('bold')?.classList.toggle('on', !!a.bold);
@@ -1233,7 +1355,12 @@ propBar.addEventListener('input', (e) => {
     else if (k === 'size') { const v = +e.target.value; if (v >= 4) a.size = v; }
     else if (k === 'color') a.color = e.target.value;
     else if (k === 'width') a.width = +e.target.value;
-    else if (k === 'family') { a.family = e.target.value; if (a.type === 'textedit') a.sq = 1; }
+    else if (k === 'family') {
+      const [kind, v] = [e.target.value.slice(0, e.target.value.indexOf(':')), e.target.value.slice(e.target.value.indexOf(':') + 1)];
+      if (kind === 'font') { a.font = v; a.family = /times|georgia|garamond|book|cambria|palatino|century school|constantia|sylfaen/i.test(v) ? 'serif' : /courier|consol|lucida console/i.test(v) ? 'mono' : 'sans'; }
+      else { a.family = v; delete a.font; }
+      if (a.type === 'textedit') a.sq = 1;
+    }
   });
   syncPropValues(a);
 });
@@ -1264,6 +1391,47 @@ propBar.addEventListener('click', (e) => {
   });
   propPushed = false; syncPropValues(a);
 });
+
+// ---------------------------------------------------------------- fonts
+let fontList = [];
+installedFonts().then((l) => (fontList = l));
+function cssFamily(a) { return (a.font ? `"${a.font}", ` : '') + CSS_FAMILY[a.family || 'sans']; }
+function fontOptions() {
+  const std = [['sans', 'Helvetica (Sans)'], ['serif', 'Times (Serif)'], ['mono', 'Courier (Mono)']];
+  return `<optgroup label="${esc(t('stdFonts'))}">${std.map(([v, l]) => `<option value="std:${v}">${l}</option>`).join('')}</optgroup>` +
+    (fontList.length ? `<optgroup label="${esc(t('installedFonts'))}">${fontList.map((f) => `<option value="font:${esc(f)}" style="font-family:'${esc(f)}'">${esc(f)}</option>`).join('')}</optgroup>` : '');
+}
+// Some fonts (e.g. Calibri) cannot be subset by the font library: probe once per font
+// in a scratch document and fall back to embedding the whole font, then to a standard font.
+const embedModes = new Map();
+async function embedMode(key, bytes) {
+  if (embedModes.has(key)) return embedModes.get(key);
+  let mode = 'none';
+  for (const subset of [true, false]) {
+    try {
+      const d = await PDFDocument.create(); d.registerFontkit(fontkit);
+      const f = await d.embedFont(bytes, { subset });
+      d.addPage().drawText('Aa 0123 .,', { font: f, size: 10 });
+      await d.save(); mode = subset ? 'subset' : 'full'; break;
+    } catch {}
+  }
+  embedModes.set(key, mode);
+  return mode;
+}
+let metricsDoc = null; const metricFonts = new Map();
+async function widthIn(family, bold, italic, text, size) {
+  try {
+    if (!metricsDoc) { metricsDoc = await PDFDocument.create(); metricsDoc.registerFontkit(fontkit); }
+    const key = `${family}|${!!bold}|${!!italic}`;
+    if (!metricFonts.has(key)) { const b = await fontBytes(family, bold, italic); metricFonts.set(key, b ? await metricsDoc.embedFont(b) : null); }
+    return metricFonts.get(key)?.widthOfTextAtSize(text, size) || 0;
+  } catch { return 0; }
+}
+// New text boxes use the last font, bold and italic chosen in the properties bar (like Word).
+S.textStyle = {};
+propBar.addEventListener('change', () => { const a = S.selected?.a; if (a?.type === 'text') S.textStyle = { font: a.font, family: a.family, bold: a.bold, italic: a.italic }; });
+propBar.addEventListener('click', () => { const a = S.selected?.a; if (a?.type === 'text') S.textStyle = { font: a.font, family: a.family, bold: a.bold, italic: a.italic }; });
+document.body.insertAdjacentHTML('beforeend', `<datalist id="fontSizes">${FONT_SIZES.map((s) => `<option value="${s}">`).join('')}</datalist>`);
 
 initTemplates({ modal, toast, ask, promptText, pickFiles, openTemplate });
 
