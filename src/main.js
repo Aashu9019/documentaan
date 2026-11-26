@@ -11,6 +11,7 @@ import {
 import { t, applyI18n, toggleLang } from './i18n.js';
 import { openSignatureDialog } from './signature.js';
 import { toast, modal, ask, promptText } from './ui.js';
+import { compressPdf, formatSize } from './compress.js';
 import { isDesktop, nativeOpen, nativeSave, readPath, baseName, setTitle, onExternalOpen, guardClose, bindWindowControls } from './native.js';
 
 pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
@@ -752,6 +753,70 @@ async function flatten() {
   await mutate((doc) => doc.getForm().flatten()); toast(t('done') + ' ✓');
 }
 
+// ---------------------------------------------------------------- compress
+async function compressDialog() {
+  // Use the open document (with its annotations), or let the user pick any PDF.
+  let src, name;
+  if (S.bytes) { src = await bake({ forSave: false }); name = S.name; }
+  else {
+    const [f] = await pickFiles('application/pdf', false); if (!f) return;
+    src = new Uint8Array(await f.arrayBuffer()); name = f.name;
+  }
+  const base = name.replace(/\.pdf$/i, '');
+  const m = modal(t('compress'), `
+    <p class="muted" style="margin:0 0 12px"><b>${esc(name)}</b> &middot; ${formatSize(src.length)}</p>
+    <div class="levels">
+      ${['low', 'medium', 'high'].map((lv) => `
+        <label class="level${lv === 'medium' ? ' on' : ''}"><input type="radio" name="lv" value="${lv}"${lv === 'medium' ? ' checked' : ''}>
+          <span class="lv-bars">${'<i></i>'.repeat({ low: 1, medium: 2, high: 3 }[lv])}</span>
+          <b data-i18n="c_${lv}"></b><span class="muted" data-i18n="c_${lv}_d"></span></label>`).join('')}
+    </div>
+    <div class="cmp-progress" hidden><div class="bar"><span></span></div><p class="muted"></p></div>
+    <div class="cmp-result" hidden></div>
+    <div class="actions">
+      <button class="btn" id="c" data-i18n="close"></button>
+      <button class="btn" id="openRes" hidden data-i18n="openResult"></button>
+      <button class="btn" id="saveRes" hidden data-i18n="saveCopy"></button>
+      <button class="btn primary" id="go" data-i18n="compressBtn"></button>
+    </div>`);
+  const $m = (s) => m.el.querySelector(s);
+  m.el.querySelectorAll('.level').forEach((l) => l.addEventListener('change', () => {
+    m.el.querySelectorAll('.level').forEach((x) => x.classList.toggle('on', x.querySelector('input').checked));
+  }));
+  $m('#c').onclick = m.close;
+  let result = null;
+  $m('#go').onclick = async () => {
+    const level = m.el.querySelector('input[name=lv]:checked').value;
+    $m('#go').disabled = true; $m('.cmp-result').hidden = true;
+    const prog = $m('.cmp-progress'); prog.hidden = false;
+    try {
+      result = await compressPdf(src, level, (done, total) => {
+        prog.querySelector('.bar span').style.width = (total ? (done / total) * 100 : 100) + '%';
+        prog.querySelector('p').textContent = total ? t('cmpImages').replace('{d}', done).replace('{n}', total) : t('cmpWorking');
+      });
+    } catch (e) { console.error(e); toast('Error: ' + e.message, 4000); $m('#go').disabled = false; prog.hidden = true; return; }
+    prog.hidden = true; $m('#go').disabled = false;
+    const saved = result.before - result.after, pct = Math.round((saved / result.before) * 100);
+    const box = $m('.cmp-result'); box.hidden = false;
+    box.innerHTML = saved > 1024
+      ? `<div class="cmp-sizes"><span>${formatSize(result.before)}</span><span class="arrow">&rarr;</span><b>${formatSize(result.after)}</b></div>
+         <div class="cmp-pct">${t('cmpSmaller').replace('{p}', pct)}</div>`
+      : `<p class="muted" style="margin:0">${t('cmpNoGain')}</p>`;
+    $m('#saveRes').hidden = $m('#openRes').hidden = saved <= 1024;
+    $m('#go').textContent = t('tryAgain');
+  };
+  $m('#saveRes').onclick = async () => {
+    if (!result) return;
+    const fname = `${base}-compressed.pdf`;
+    if (isDesktop) { try { if (await nativeSave(result.bytes, null, fname)) toast(t('saved') + ' ✓'); } catch (e) { toast('Save failed: ' + e, 4000); } }
+    else { download(result.bytes, fname); toast(t('saved') + ' ✓'); }
+  };
+  $m('#openRes').onclick = async () => {
+    if (!result || !(await confirmDiscard())) return;
+    m.close(); openBytes(result.bytes, `${base}-compressed.pdf`, null);
+  };
+}
+
 // ---------------------------------------------------------------- signatures
 function signDialog() {
   if (!S.bytes) return toast(t('needPdf'));
@@ -829,7 +894,7 @@ async function closeDocument() {
 
 // ---------------------------------------------------------------- wiring
 const actions = {
-  merge: () => mergePdfs(), split: splitDialog, images: () => imagesToPdf(), insertBlank,
+  merge: () => mergePdfs(), compress: compressDialog, split: splitDialog, images: () => imagesToPdf(), insertBlank,
   watermark: watermarkDialog, pageNumbers: pageNumbersDialog, protect: protectDialog, forms: formsDialog, flatten,
 };
 document.addEventListener('click', (e) => {

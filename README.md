@@ -18,6 +18,7 @@
 ## Why Documentaan?
 
 - **Small and fast.** The installer is about 5 to 10 MB and the app opens in about a second.
+- **Free PDF compression.** Make big PDFs small enough to email, with Low, Medium and High levels.
 - **Unlimited signatures.** Save as many signatures and initials as you need, each with its own name.
 - **Private.** Everything runs locally. No account, no upload, no internet needed after install.
 - **English and Nepali.** Switch the whole interface between English and नेपाली with one click.
@@ -32,6 +33,7 @@
 | Annotate | Text, highlight, freehand pen, rectangle, ellipse, line (hold Shift to snap), sticky notes, check and cross marks, today's date, white-out |
 | Forms | Fill in PDF form fields, then flatten them so they can no longer be changed |
 | Pages | Drag thumbnails to reorder, rotate, delete, insert blank pages |
+| Compress | Shrink PDFs for free with three levels: Low (best quality), Medium (best for email) and High (smallest file). Text stays sharp and searchable; only images are optimised |
 | Tools | Merge PDFs, split or extract pages, images to PDF, watermark, page numbers (including Nepali digits), password protection (AES-256) |
 | Everyday | Undo and redo, print, Save (overwrites the file) and Save As, double-click a PDF in Windows Explorer to open it |
 

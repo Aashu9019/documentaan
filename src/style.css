@@ -210,3 +210,27 @@ body.is-dirty .dirty-dot { transform: scale(1); }
 .overlay.placing { cursor: none; }
 .overlay.placing .an { cursor: move; }
 body.stamping .toast { bottom: 96px; transition: bottom var(--med) var(--ease); }
+
+/* ---------- compress dialog ---------- */
+.levels { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.level { display: flex !important; flex-direction: column; gap: 4px; margin: 0 !important; padding: 14px; border: 1.5px solid var(--line); border-radius: 12px; cursor: pointer; color: var(--text) !important; transition: border-color var(--fast) var(--ease), background-color var(--fast) var(--ease), transform var(--fast) var(--ease); }
+.level:hover { border-color: var(--muted); transform: translateY(-1px); }
+.level.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.level input { position: absolute; opacity: 0; pointer-events: none; }
+.level b { font-size: 15px; }
+.level .muted { font-size: 12px; line-height: 1.4; }
+.lv-bars { display: flex; gap: 3px; height: 14px; align-items: flex-end; margin-bottom: 4px; }
+.lv-bars i { width: 5px; border-radius: 2px; background: var(--accent); }
+.lv-bars i:nth-child(1) { height: 6px; } .lv-bars i:nth-child(2) { height: 10px; } .lv-bars i:nth-child(3) { height: 14px; }
+.cmp-progress { margin-top: 16px; }
+.cmp-progress .bar { height: 6px; border-radius: 3px; background: var(--panel2); overflow: hidden; }
+.cmp-progress .bar span { display: block; height: 100%; width: 0; background: var(--accent); transition: width var(--med) var(--ease); }
+.cmp-progress p { margin: 6px 0 0; font-size: 12px; }
+.cmp-result { margin-top: 16px; padding: 14px 16px; border-radius: 12px; background: var(--panel2); animation: rise-in var(--med) var(--ease); }
+.cmp-sizes { display: flex; align-items: baseline; gap: 10px; font-size: 15px; }
+.cmp-sizes span { color: var(--muted); text-decoration: line-through; }
+.cmp-sizes .arrow { text-decoration: none; }
+.cmp-sizes b { font-size: 22px; }
+.cmp-pct { color: #1a7f37; font-weight: 600; margin-top: 2px; }
+:root[data-theme="dark"] .cmp-pct { color: #4ac26b; }
+@media (max-width: 560px) { .levels { grid-template-columns: 1fr; } }
