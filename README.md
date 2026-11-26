@@ -18,6 +18,7 @@
 ## Why Documentaan?
 
 - **Small and fast.** The installer is about 5 to 10 MB and the app opens in about a second.
+- **Edit the PDF itself.** Change existing text, numbers and table cells in PDFs made with Word and similar apps.
 - **Free PDF compression.** Make big PDFs small enough to email, with Low, Medium and High levels.
 - **Unlimited signatures.** Save as many signatures and initials as you need, each with its own name.
 - **Private.** Everything runs locally. No account, no upload, no internet needed after install.
@@ -30,6 +31,7 @@
 |---|---|
 | View | Open any PDF, zoom (Ctrl + mouse wheel), fit to width, page thumbnails, search text, light and dark theme |
 | Sign | Draw, type (several handwriting fonts) or upload a signature image with automatic background removal. Save unlimited signatures and initials, then place and resize them anywhere |
+| Edit text | Click any existing text, number or table cell to change or delete it. The original text is truly removed (not just covered), and the new text matches the original size, weight, colour and background |
 | Annotate | Text, highlight, freehand pen, rectangle, ellipse, line (hold Shift to snap), sticky notes, check and cross marks, today's date, white-out |
 | Forms | Fill in PDF form fields, then flatten them so they can no longer be changed |
 | Pages | Drag thumbnails to reorder, rotate, delete, insert blank pages |
@@ -79,7 +81,8 @@ To uninstall, open **Settings > Apps > Installed apps**, find Documentaan and cl
 
 - Nepali (Devanagari) text you add is stored as a sharp image inside the PDF, because the built-in PDF fonts only cover Latin letters. It looks correct but cannot be selected or searched.
 - Rotating a page merges that document's annotations into the page, so they can no longer be moved afterwards.
-- Editing text that is already part of the original PDF and OCR for scanned documents are not supported yet.
+- Edit text works line by line: a longer edit does not push the following lines down, and table rows or columns cannot be added. Edited text uses the closest standard font (Helvetica, Times or Courier) squeezed to the original width, so unusual fonts are approximated.
+- Scanned documents are images, so their text cannot be edited (OCR is not supported yet).
 
 ---
 

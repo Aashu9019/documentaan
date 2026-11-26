@@ -7,7 +7,10 @@ import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import {
   PDFDocument, rgb, degrees, StandardFonts, LineCapStyle, BlendMode, PDFHexString,
   PDFTextField, PDFCheckBox, PDFDropdown, PDFOptionList, PDFRadioGroup,
+  pushGraphicsState, popGraphicsState, setCharacterSqueeze,
 } from '@cantoo/pdf-lib';
+import { stripTextInRects } from './redact.js';
+import { getBlocks, resetBlocks, squeezeFor, sampleColors, stdFontName, CSS_FAMILY } from './textedit.js';
 import { t, applyI18n, toggleLang } from './i18n.js';
 import { openSignatureDialog } from './signature.js';
 import { toast, modal, ask, promptText } from './ui.js';
@@ -35,8 +38,10 @@ const S = {
   protect: null,
   history: [], future: [],
   texts: null,          // search cache
+  blocks: [],           // editable text blocks per page (edit-text mode)
 };
 
+if (import.meta.env.DEV) window.__dc = S; // test hook, stripped from production builds
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const pagesEl = $('#pages'), viewer = $('#viewer'), thumbsEl = $('#thumbs');
@@ -105,7 +110,8 @@ async function loadPdf(bytes, { keepAnnots }) {
   };
   const pdf = await task.promise;
   if (S.pdf) S.pdf.destroy();
-  S.pdf = pdf; S.bytes = bytes; S.texts = null;
+  S.pdf = pdf; S.bytes = bytes; S.texts = null; S.blocks = []; resetBlocks();
+  if (S.tool === 'edittext') setTimeout(() => ensureBlocks().then(renderAllOverlays));
   S.vps = [];
   for (let i = 1; i <= pdf.numPages; i++) S.vps.push((await pdf.getPage(i)).getViewport({ scale: 1 }));
   if (!keepAnnots || S.annots.length !== pdf.numPages) {
@@ -269,13 +275,16 @@ function bbox(a) {
   }
   if (a.type === 'note') return { x: a.x, y: a.y, w: 20, h: 20 };
   if (a.type === 'text') return { x: a.x, y: a.y, w: 0, h: 0 };
+  if (a.type === 'textedit') return { x: a.x - 1, y: a.y - 1, w: a.w + 2, h: a.h + 2 };
   return { x: a.x, y: a.y, w: a.w, h: a.h };
 }
 function translate(a, a0, dx, dy) {
+  if (a.type === 'textedit') return; // edited text stays where the original was
   if (a.points) a.points = a0.points.map(([x, y]) => [x + dx, y + dy]);
   else { a.x = a0.x + dx; a.y = a0.y + dy; }
 }
 function resize(a, a0, dx, dy, el) {
+  if (a.type === 'textedit') return;
   if (a.type === 'text') { const w0 = el._w0; a.size = Math.max(4, a0.size * (w0 + dx) / w0); return; }
   if (a.points) {
     const b = bbox(a0), sx = Math.max(0.05, (b.w + dx) / b.w), sy = Math.max(0.05, (b.h + dy) / b.h);
@@ -297,6 +306,9 @@ function renderOverlay(i) {
     el.style.left = b.x * k + 'px'; el.style.top = b.y * k + 'px';
     if (a.type === 'text') {
       el.textContent = a.text; el.style.fontSize = a.size * k + 'px'; el.style.color = a.color;
+    } else if (a.type === 'textedit') {
+      el.style.width = b.w * k + 'px'; el.style.height = b.h * k + 'px'; el.style.background = a.bg;
+      el.innerHTML = `<span class="te-text" style="${teStyle(a, b, k)}">${esc(a.text)}</span>`;
     } else if (a.type === 'note') {
       el.innerHTML = `<div class="tip">${esc(a.text)}</div>`;
       el.style.transform = `scale(${k})`; el.style.transformOrigin = '0 0';
@@ -307,10 +319,26 @@ function renderOverlay(i) {
     }
     if (S.selected && S.selected.page === i && S.selected.a === a) {
       el.classList.add('sel');
-      if (a.type !== 'note') el.insertAdjacentHTML('beforeend', '<div class="handle"></div>');
+      if (a.type !== 'note' && a.type !== 'textedit') el.insertAdjacentHTML('beforeend', '<div class="handle"></div>');
     }
     ov.appendChild(el);
   });
+  // Edit-text mode: outline every piece of original text that can be edited.
+  if (S.tool === 'edittext' && S.blocks[i]) {
+    const done = new Set((S.annots[i] || []).filter((a) => a.type === 'textedit').map((a) => a.key));
+    for (const blk of S.blocks[i]) {
+      if (done.has(blk.key)) continue;
+      const tb = document.createElement('div');
+      tb.className = 'tb'; tb.dataset.key = blk.key;
+      tb.style.cssText = `left:${(blk.x - 2) * k}px;top:${(blk.y - 1) * k}px;width:${(blk.w + 4) * k}px;height:${(blk.h + 2) * k}px`;
+      ov.appendChild(tb);
+    }
+  }
+}
+function teStyle(a, b, k) {
+  const top = (a.baseline - b.y - 0.845 * a.size) * k;
+  return `left:${1 * k}px;top:${top}px;font-family:${CSS_FAMILY[a.family]};font-size:${a.size * k}px;` +
+    `font-weight:${a.bold ? 700 : 400};font-style:${a.italic ? 'italic' : 'normal'};color:${a.color};transform:scaleX(${a.sq})`;
 }
 function svgFor(a, b, k) {
   const w = b.w * k, h = b.h * k, sw = (a.width || 2) * k;
@@ -338,15 +366,66 @@ const strokeW = () => +$('#size').value;
 const fontSz = () => +$('#fontSize').value;
 
 function setTool(tool) {
+  const prev = S.tool;
   S.tool = tool;
   if (tool !== 'place' && S.placing) { S.placing = null; hidePlacingBar(); }
   $$('.tool[data-tool]').forEach((b) => b.classList.toggle('active', b.dataset.tool === tool));
-  if (tool !== 'select') { S.selected = null; renderAllOverlays(); }
+  if (tool !== 'select') S.selected = null;
+  if (tool === 'edittext') {
+    if (!S.pdf) return;
+    ensureBlocks().then(() => {
+      renderAllOverlays();
+      const n = S.blocks.reduce((t, l) => t + (l?.length || 0), 0);
+      toast(n ? t('editHint') : t('noTextFound'), n ? 2600 : 4500);
+    });
+  } else if (tool !== 'select' || prev !== 'select') renderAllOverlays();
   updateCursor();
+}
+async function ensureBlocks() {
+  if (!S.pdf) return;
+  for (let i = 0; i < S.vps.length; i++) {
+    if (!S.blocks[i]) {
+      const list = await getBlocks(S.pdf, i);
+      list.forEach((b) => (b.key = `${Math.round(b.x)}:${Math.round(b.baseline)}`));
+      S.blocks[i] = list;
+    }
+  }
+}
+async function startBlockEdit(i, key) {
+  const b = S.blocks[i]?.find((x) => x.key === key); if (!b) return;
+  const canvas = pagesEl.children[i]?.querySelector('canvas.pdf');
+  const { bg, color: ink } = sampleColors(canvas, b, S.scale * dpr());
+  const sq = await squeezeFor(b);
+  pushHistory();
+  const a = { type: 'textedit', key, x: b.x, y: b.y, w: b.w, h: b.h, baseline: b.baseline, size: b.size,
+    family: b.family, bold: b.bold, italic: b.italic, color: ink, bg, sq, orig: b.text, text: b.text };
+  S.annots[i].push(a); renderOverlay(i); editBlock(i, a, true);
+}
+function editBlock(i, a, isNew) {
+  if (!isNew) pushHistory();
+  const ov = pagesEl.children[i].querySelector('.overlay');
+  const el = ov.querySelector(`.an[data-idx="${S.annots[i].indexOf(a)}"]`); if (!el) return;
+  const span = el.querySelector('.te-text'), before = a.text;
+  el.classList.add('editing');
+  span.contentEditable = 'plaintext-only'; span.focus();
+  const sel = getSelection(); sel.selectAllChildren(span);
+  let cancelled = false;
+  span.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); span.blur(); }
+    else if (e.key === 'Escape') { cancelled = true; span.blur(); }
+    e.stopPropagation();
+  });
+  span.addEventListener('blur', () => {
+    a.text = cancelled ? before : span.innerText.replace(/\s*\n\s*/g, ' ');
+    if (a.text === a.orig && isNew) { S.annots[i].splice(S.annots[i].indexOf(a), 1); S.history.pop(); }
+    else if (a.text === before && !isNew) S.history.pop();
+    renderOverlay(i);
+  }, { once: true });
 }
 function updateCursor() {
   $$('.overlay').forEach((o) => {
-    o.classList.toggle('drawing', !['select', 'place'].includes(S.tool));
+    o.classList.toggle('drawing', !['select', 'place', 'edittext'].includes(S.tool));
+    o.classList.toggle('edit-text', S.tool === 'edittext');
     o.classList.toggle('placing', S.tool === 'place');
   });
   pagesEl.classList.toggle('select-mode', S.tool === 'select');
@@ -359,6 +438,7 @@ function bindOverlay(ov, i) {
     if (!el) return;
     const a = S.annots[i][+el.dataset.idx];
     if (a.type === 'text') editText(i, a);
+    if (a.type === 'textedit') editBlock(i, a, false);
     if (a.type === 'note') promptText(t('tNote'), { value: a.text, multiline: true }).then((v) => { if (v !== null) { pushHistory(); a.text = v; renderOverlay(i); } });
   });
   ov.addEventListener('pointerdown', (e) => {
@@ -373,6 +453,13 @@ function bindOverlay(ov, i) {
       const prev = S.selected; list.push(a); S.selected = { page: i, a }; S.placing.last = { page: i, a };
       if (prev && prev.page !== i) renderOverlay(prev.page);
       renderOverlay(i); updatePlacingBar(); return;
+    }
+    if (tool === 'edittext') {
+      e.preventDefault();
+      const tb = e.target.closest('.tb'), an = e.target.closest('.an.textedit');
+      if (tb) startBlockEdit(i, tb.dataset.key);
+      else if (an && !an.classList.contains('editing')) editBlock(i, list[+an.dataset.idx], false);
+      return;
     }
     if (tool === 'select' || tool === 'place') {
       const el = e.target.closest('.an');
@@ -471,7 +558,7 @@ const dataUrlBytes = (u) => Uint8Array.from(atob(u.split(',')[1]), (c) => c.char
 async function bake({ forSave }) {
   const doc = await loadLib();
   const font = await doc.embedFont(StandardFonts.Helvetica);
-  const imgCache = new Map();
+  const imgCache = new Map(), fontCache = new Map();
   const embed = async (src) => {
     if (!imgCache.has(src)) imgCache.set(src, src.startsWith('data:image/jpeg') ? await doc.embedJpg(dataUrlBytes(src)) : await doc.embedPng(dataUrlBytes(src)));
     return imgCache.get(src);
@@ -483,6 +570,9 @@ async function bake({ forSave }) {
     const box = (a) => { const [x1, y1] = P(a.x, a.y), [x2, y2] = P(a.x + a.w, a.y + a.h); return { x: Math.min(x1, x2), y: Math.min(y1, y2), w: Math.abs(x2 - x1), h: Math.abs(y2 - y1) }; };
     const drawImg = async (src, x, y, w, h) => { const [px, py] = P(x, y + h); page.drawImage(await embed(src), { x: px, y: py, width: w, height: h, rotate: degrees(R) }); };
     const line = (p1, p2, c, th) => page.drawLine({ start: { x: p1[0], y: p1[1] }, end: { x: p2[0], y: p2[1] }, thickness: th, color: c, lineCap: LineCapStyle.Round });
+    // Edited PDF text: really delete the original glyphs, not just cover them.
+    const edited = list.filter((a) => a.type === 'textedit').map((a) => box({ x: a.x - 1, y: a.y - 1, w: a.w + 2, h: a.h + 2 }));
+    if (edited.length) { try { stripTextInRects(doc, page, edited); } catch (e) { console.warn('text removal skipped', e); } }
 
     for (const a of list) {
       const c = a.color ? hexRgb(a.color) : undefined;
@@ -499,6 +589,19 @@ async function bake({ forSave }) {
           const [px, py] = P(a.x, a.y + a.size * 0.93);
           page.drawText(a.text, { x: px, y: py, size: a.size, font, color: c, lineHeight: a.size * 1.2, rotate: degrees(R) });
         } else { const r = rasterText(a.text, a.size, a.color); await drawImg(r.url, a.x, a.y, r.w, r.h); }
+      } else if (a.type === 'textedit') {
+        const b = box({ x: a.x - 1, y: a.y - 1, w: a.w + 2, h: a.h + 2 });
+        page.drawRectangle({ x: b.x, y: b.y, width: b.w, height: b.h, color: hexRgb(a.bg) });
+        if (a.text.trim()) {
+          if (latinSafe(a.text)) {
+            const name = stdFontName(a);
+            if (!fontCache.has(name)) fontCache.set(name, await doc.embedFont(name));
+            const [px, py] = P(a.x, a.baseline);
+            page.pushOperators(pushGraphicsState(), setCharacterSqueeze(a.sq * 100));
+            page.drawText(a.text, { x: px, y: py, size: a.size, font: fontCache.get(name), color: c });
+            page.pushOperators(popGraphicsState());
+          } else { const r = rasterText(a.text, a.size, a.color); await drawImg(r.url, a.x, a.y, r.w, r.h); }
+        }
       } else if (a.type === 'note') {
         const [x1, y1] = P(a.x, a.y), [x2, y2] = P(a.x + 20, a.y + 20);
         const ref = doc.context.register(doc.context.obj({

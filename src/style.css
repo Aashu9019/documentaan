@@ -234,3 +234,15 @@ body.stamping .toast { bottom: 96px; transition: bottom var(--med) var(--ease); 
 .cmp-pct { color: #1a7f37; font-weight: 600; margin-top: 2px; }
 :root[data-theme="dark"] .cmp-pct { color: #4ac26b; }
 @media (max-width: 560px) { .levels { grid-template-columns: 1fr; } }
+
+/* ---------- edit PDF text ---------- */
+.tool[data-tool="edittext"] { width: auto; padding: 0 10px 0 7px; gap: 6px; display: inline-flex; font-size: 13px; font-weight: 600; }
+.tool-label { white-space: nowrap; }
+.overlay.edit-text { cursor: text; }
+.tb { position: absolute; border-radius: 2px; outline: 1px dashed color-mix(in srgb, var(--sel) 45%, transparent); cursor: text; transition: background-color var(--fast) var(--ease), outline-color var(--fast) var(--ease); }
+.tb:hover { background: color-mix(in srgb, var(--sel) 12%, transparent); outline: 1.5px solid var(--sel); }
+.an.textedit { overflow: visible; }
+.overlay.edit-text .an.textedit { cursor: text; outline: 1px dashed color-mix(in srgb, #1a7f37 60%, transparent); }
+.an.textedit.editing { outline: 2px solid var(--sel) !important; outline-offset: 1px; z-index: 5; }
+.te-text { position: absolute; white-space: pre; line-height: 1; transform-origin: 0 0; outline: none; min-width: 4px; }
+.search input { width: 150px; } @media (max-width: 1280px) { .tool-label { display: none; } .tool[data-tool="edittext"] { padding: 0; width: 32px; justify-content: center; } }

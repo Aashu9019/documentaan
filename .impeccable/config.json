@@ -1,0 +1,14 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "overused-font",
+        "value": "helvetica",
+        "createdAt": "2026-11-26T06:58:34.258Z",
+        "reason": "Claude judgment: annotation text preview must match the Helvetica standard font embedded into saved PDFs (WYSIWYG), not a UI branding choice"
+      }
+    ]
+  }
+}
